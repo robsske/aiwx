@@ -9,9 +9,9 @@ export default function Jobs() {
     <div className="page">
       <h1 className="page-title">Jobs</h1>
 
-      {isLoading ? (
+      {isLoading && !jobs ? (
         <div className="loading">Loading...</div>
-      ) : isError ? (
+      ) : isError && !jobs ? (
         <ErrorState
           message={error instanceof Error ? error.message : 'Failed to load jobs'}
           onRetry={() => refetch()}

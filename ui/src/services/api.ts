@@ -1,7 +1,7 @@
 import axios, { AxiosInstance, InternalAxiosRequestConfig } from 'axios'
 import type {
   Organization, Project, Job, JobEvent, Credential, CredentialType,
-  Inventory, InventoryHost, JobTemplate, PaginatedResponse, UserInfo,
+  Inventory, JobTemplate, PaginatedResponse, UserInfo,
 } from '../types'
 
 // ─── API Client ───────────────────────────────────────────────────────────────
@@ -179,9 +179,36 @@ class ApiClient {
     return response.data
   }
 
-  async listInventoryHosts(id: string): Promise<PaginatedResponse<InventoryHost>> {
+  async listInventoryHosts(id: string): Promise<PaginatedResponse<import('../types').InventoryHost>> {
     const response = await this.client.get(`/inventories/${id}/hosts`)
     return response.data
+  }
+
+  async createInventoryHost(id: string, data: { name: string; description?: string; variables?: Record<string, any> }): Promise<import('../types').InventoryHost> {
+    const response = await this.client.post(`/inventories/${id}/hosts`, data)
+    return response.data
+  }
+
+  async listInventoryGroups(id: string): Promise<PaginatedResponse<import('../types').InventoryGroup>> {
+    const response = await this.client.get(`/inventories/${id}/groups`)
+    return response.data
+  }
+
+  async createInventoryGroup(id: string, data: { name: string; description?: string; variables?: Record<string, any>; parent_group_id?: string }): Promise<import('../types').InventoryGroup> {
+    const response = await this.client.post(`/inventories/${id}/groups`, data)
+    return response.data
+  }
+
+  async deleteInventoryGroup(id: string, groupId: string): Promise<void> {
+    await this.client.delete(`/inventories/${id}/groups/${groupId}`)
+  }
+
+  async addHostToGroup(id: string, groupId: string, hostId: string): Promise<void> {
+    await this.client.post(`/inventories/${id}/groups/${groupId}/hosts`, { host_id: hostId })
+  }
+
+  async removeHostFromGroup(id: string, groupId: string, hostId: string): Promise<void> {
+    await this.client.delete(`/inventories/${id}/groups/${groupId}/hosts/${hostId}`)
   }
 
   // ─── Job Templates ─────────────────────────────────────────────────────────

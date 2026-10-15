@@ -92,14 +92,36 @@ func (r *LocalRunner) Run(ctx context.Context, job *domain.Job, spec *JobSpec) (
 		args = append(args, "-i", inventoryPath)
 	}
 
+	// Host targeting (AWX-style limit)
+	if spec.Limit != "" {
+		args = append(args, "--limit", spec.Limit)
+	}
+
+	// Verbosity (0-4 maps to no flag, -v, -vv, -vvv, -vvvv)
+	for i := 0; i < spec.Verbosity; i++ {
+		args = append(args, "-v")
+	}
+
+	// Forks
+	if spec.Forks > 0 {
+		args = append(args, "--forks", fmt.Sprintf("%d", spec.Forks))
+	}
+
+	// Job tags
+	if spec.JobTags != "" {
+		args = append(args, "--tags", spec.JobTags)
+	}
+
+	// Skip tags
+	if spec.SkipTags != "" {
+		args = append(args, "--skip-tags", spec.SkipTags)
+	}
+
 	// Extra vars as YAML
 	if len(spec.ExtraVars) > 0 {
 		yamlVars := mapToYAML(spec.ExtraVars)
 		args = append(args, "--extra-vars", yamlVars)
 	}
-
-	// Verbose output
-	args = append(args, "-v")
 
 	cmd := exec.CommandContext(ctx, r.PlaybookPath, args...)
 	cmd.Dir = workDir

@@ -29,14 +29,35 @@ func (r *JobTemplateRepo) Create(ctx context.Context, input domain.JobTemplateCr
 	jt := &domain.JobTemplate{
 		ID:                     uuid.New(),
 		Name:                   input.Name,
+		Description:            input.Description,
 		OrganizationID:         orgID,
 		ProjectID:              input.ProjectID,
 		InventoryID:            input.InventoryID,
 		ExecutionEnvironmentID: input.ExecutionEnvironmentID,
 		Playbook:               input.Playbook,
 		CredentialIDs:          input.CredentialIDs,
+		Limit:                  input.Limit,
+		Verbosity:              input.Verbosity,
+		Forks:                  input.Forks,
+		JobTags:                input.JobTags,
+		SkipTags:               input.SkipTags,
+		ExtraVars:              input.ExtraVars,
+		AskInventoryOnLaunch:   input.AskInventoryOnLaunch,
+		AskLimitOnLaunch:       input.AskLimitOnLaunch,
+		AskVerbosityOnLaunch:   input.AskVerbosityOnLaunch,
+		AskVariablesOnLaunch:   input.AskVariablesOnLaunch,
+		AskCredentialOnLaunch:  input.AskCredentialOnLaunch,
 		CreatedAt:              time.Now(),
 		UpdatedAt:              time.Now(),
+	}
+	if jt.ExtraVars == nil {
+		jt.ExtraVars = map[string]any{}
+	}
+	if jt.Verbosity < 0 {
+		jt.Verbosity = 0
+	}
+	if jt.Verbosity > 4 {
+		jt.Verbosity = 4
 	}
 
 	tx, err := r.pool.Begin(ctx)
@@ -46,11 +67,19 @@ func (r *JobTemplateRepo) Create(ctx context.Context, input domain.JobTemplateCr
 	defer tx.Rollback(ctx)
 
 	_, err = tx.Exec(ctx,
-		`INSERT INTO job_templates (id, organization_id, name, project_id, inventory_id,
-		                           execution_environment_id, playbook, created_at, updated_at)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-		jt.ID, jt.OrganizationID, jt.Name, jt.ProjectID, jt.InventoryID,
-		jt.ExecutionEnvironmentID, jt.Playbook, jt.CreatedAt, jt.UpdatedAt,
+		`INSERT INTO job_templates (id, organization_id, name, description, project_id, inventory_id,
+		                           execution_environment_id, playbook, limit_hosts, verbosity, forks,
+		                           job_tags, skip_tags, extra_vars,
+		                           ask_inventory_on_launch, ask_limit_on_launch, ask_verbosity_on_launch,
+		                           ask_variables_on_launch, ask_credential_on_launch,
+		                           created_at, updated_at)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)`,
+		jt.ID, jt.OrganizationID, jt.Name, jt.Description, jt.ProjectID, jt.InventoryID,
+		jt.ExecutionEnvironmentID, jt.Playbook, jt.Limit, jt.Verbosity, jt.Forks,
+		jt.JobTags, jt.SkipTags, jt.ExtraVars,
+		jt.AskInventoryOnLaunch, jt.AskLimitOnLaunch, jt.AskVerbosityOnLaunch,
+		jt.AskVariablesOnLaunch, jt.AskCredentialOnLaunch,
+		jt.CreatedAt, jt.UpdatedAt,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("insert job template: %w", err)
@@ -76,15 +105,24 @@ func (r *JobTemplateRepo) Create(ctx context.Context, input domain.JobTemplateCr
 
 func (r *JobTemplateRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.JobTemplate, error) {
 	jt := &domain.JobTemplate{}
+	var extraVars map[string]any
 	err := r.pool.QueryRow(ctx,
-		`SELECT id, organization_id, name, project_id, inventory_id, execution_environment_id,
-		        playbook, created_at, updated_at
+		`SELECT id, organization_id, name, description, project_id, inventory_id, execution_environment_id,
+		        playbook, limit_hosts, verbosity, forks, job_tags, skip_tags, extra_vars,
+		        ask_inventory_on_launch, ask_limit_on_launch, ask_verbosity_on_launch,
+		        ask_variables_on_launch, ask_credential_on_launch,
+		        created_at, updated_at
 		 FROM job_templates WHERE id = $1`, id,
-	).Scan(&jt.ID, &jt.OrganizationID, &jt.Name, &jt.ProjectID, &jt.InventoryID,
-		&jt.ExecutionEnvironmentID, &jt.Playbook, &jt.CreatedAt, &jt.UpdatedAt)
+	).Scan(&jt.ID, &jt.OrganizationID, &jt.Name, &jt.Description, &jt.ProjectID, &jt.InventoryID,
+		&jt.ExecutionEnvironmentID, &jt.Playbook, &jt.Limit, &jt.Verbosity, &jt.Forks,
+		&jt.JobTags, &jt.SkipTags, &extraVars,
+		&jt.AskInventoryOnLaunch, &jt.AskLimitOnLaunch, &jt.AskVerbosityOnLaunch,
+		&jt.AskVariablesOnLaunch, &jt.AskCredentialOnLaunch,
+		&jt.CreatedAt, &jt.UpdatedAt)
 	if err != nil {
 		return nil, err
 	}
+	jt.ExtraVars = extraVars
 
 	// Load credentials
 	rows, err := r.pool.Query(ctx,
@@ -111,15 +149,24 @@ func (r *JobTemplateRepo) GetByIDScoped(ctx context.Context, id uuid.UUID, scope
 		return r.GetByID(ctx, id)
 	}
 	jt := &domain.JobTemplate{}
+	var extraVars map[string]any
 	err := r.pool.QueryRow(ctx,
-		`SELECT id, organization_id, name, project_id, inventory_id, execution_environment_id,
-		        playbook, created_at, updated_at
+		`SELECT id, organization_id, name, description, project_id, inventory_id, execution_environment_id,
+		        playbook, limit_hosts, verbosity, forks, job_tags, skip_tags, extra_vars,
+		        ask_inventory_on_launch, ask_limit_on_launch, ask_verbosity_on_launch,
+		        ask_variables_on_launch, ask_credential_on_launch,
+		        created_at, updated_at
 		 FROM job_templates WHERE id = $1 AND organization_id = ANY($2)`, id, scope.OrgIDs,
-	).Scan(&jt.ID, &jt.OrganizationID, &jt.Name, &jt.ProjectID, &jt.InventoryID,
-		&jt.ExecutionEnvironmentID, &jt.Playbook, &jt.CreatedAt, &jt.UpdatedAt)
+	).Scan(&jt.ID, &jt.OrganizationID, &jt.Name, &jt.Description, &jt.ProjectID, &jt.InventoryID,
+		&jt.ExecutionEnvironmentID, &jt.Playbook, &jt.Limit, &jt.Verbosity, &jt.Forks,
+		&jt.JobTags, &jt.SkipTags, &extraVars,
+		&jt.AskInventoryOnLaunch, &jt.AskLimitOnLaunch, &jt.AskVerbosityOnLaunch,
+		&jt.AskVariablesOnLaunch, &jt.AskCredentialOnLaunch,
+		&jt.CreatedAt, &jt.UpdatedAt)
 	if err != nil {
 		return nil, err
 	}
+	jt.ExtraVars = extraVars
 
 	rows, err := r.pool.Query(ctx,
 		`SELECT credential_id FROM job_template_credentials WHERE job_template_id = $1`, id,
@@ -142,8 +189,11 @@ func (r *JobTemplateRepo) GetByIDScoped(ctx context.Context, id uuid.UUID, scope
 
 func (r *JobTemplateRepo) ListByOrg(ctx context.Context, orgID uuid.UUID) ([]domain.JobTemplate, error) {
 	rows, err := r.pool.Query(ctx,
-		`SELECT id, organization_id, name, project_id, inventory_id, execution_environment_id,
-		        playbook, created_at, updated_at
+		`SELECT id, organization_id, name, description, project_id, inventory_id, execution_environment_id,
+		        playbook, limit_hosts, verbosity, forks, job_tags, skip_tags, extra_vars,
+		        ask_inventory_on_launch, ask_limit_on_launch, ask_verbosity_on_launch,
+		        ask_variables_on_launch, ask_credential_on_launch,
+		        created_at, updated_at
 		 FROM job_templates WHERE organization_id = $1 ORDER BY name`, orgID,
 	)
 	if err != nil {
@@ -154,10 +204,16 @@ func (r *JobTemplateRepo) ListByOrg(ctx context.Context, orgID uuid.UUID) ([]dom
 	var templates []domain.JobTemplate
 	for rows.Next() {
 		var jt domain.JobTemplate
-		if err := rows.Scan(&jt.ID, &jt.OrganizationID, &jt.Name, &jt.ProjectID, &jt.InventoryID,
-			&jt.ExecutionEnvironmentID, &jt.Playbook, &jt.CreatedAt, &jt.UpdatedAt); err != nil {
+		var extraVars map[string]any
+		if err := rows.Scan(&jt.ID, &jt.OrganizationID, &jt.Name, &jt.Description, &jt.ProjectID, &jt.InventoryID,
+			&jt.ExecutionEnvironmentID, &jt.Playbook, &jt.Limit, &jt.Verbosity, &jt.Forks,
+			&jt.JobTags, &jt.SkipTags, &extraVars,
+			&jt.AskInventoryOnLaunch, &jt.AskLimitOnLaunch, &jt.AskVerbosityOnLaunch,
+			&jt.AskVariablesOnLaunch, &jt.AskCredentialOnLaunch,
+			&jt.CreatedAt, &jt.UpdatedAt); err != nil {
 			return nil, err
 		}
+		jt.ExtraVars = extraVars
 		templates = append(templates, jt)
 	}
 	return templates, nil

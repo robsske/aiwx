@@ -158,17 +158,41 @@ type InventoryCreate struct {
 }
 
 type InventoryHost struct {
-	ID        uuid.UUID      `json:"id"`
-	Name      string         `json:"name"`
-	Variables map[string]any `json:"variables"`
-	Enabled   bool           `json:"enabled"`
+	ID          uuid.UUID      `json:"id"`
+	Name        string         `json:"name"`
+	Description string         `json:"description"`
+	InventoryID uuid.UUID      `json:"inventory_id"`
+	Variables   map[string]any `json:"variables"`
+	Enabled     bool           `json:"enabled"`
+	Groups      []uuid.UUID    `json:"groups,omitempty"`
+	CreatedAt   time.Time      `json:"created_at"`
+	UpdatedAt   time.Time      `json:"updated_at"`
+}
+
+type InventoryHostCreate struct {
+	Name        string         `json:"name"`
+	Description string         `json:"description,omitempty"`
+	Variables   map[string]any `json:"variables,omitempty"`
 }
 
 type InventoryGroup struct {
 	ID            uuid.UUID      `json:"id"`
 	Name          string         `json:"name"`
+	Description   string         `json:"description"`
+	InventoryID   uuid.UUID      `json:"inventory_id"`
 	Variables     map[string]any `json:"variables"`
 	ParentGroupID *uuid.UUID     `json:"parent_group_id"`
+	HostCount     int            `json:"host_count"`
+	ChildCount    int            `json:"child_count"`
+	CreatedAt     time.Time      `json:"created_at"`
+	UpdatedAt     time.Time      `json:"updated_at"`
+}
+
+type InventoryGroupCreate struct {
+	Name          string         `json:"name"`
+	Description   string         `json:"description,omitempty"`
+	Variables     map[string]any `json:"variables,omitempty"`
+	ParentGroupID *uuid.UUID     `json:"parent_group_id,omitempty"`
 }
 
 // ─── Execution Environment ────────────────────────────────────────────────────
@@ -196,23 +220,49 @@ type ExecutionEnvironmentCreate struct {
 type JobTemplate struct {
 	ID                     uuid.UUID   `json:"id"`
 	Name                   string      `json:"name"`
+	Description            string      `json:"description"`
 	OrganizationID         uuid.UUID   `json:"organization_id"`
 	ProjectID              uuid.UUID   `json:"project_id"`
 	InventoryID            *uuid.UUID  `json:"inventory_id"`
 	ExecutionEnvironmentID *uuid.UUID  `json:"execution_environment_id"`
 	Playbook               string      `json:"playbook"`
 	CredentialIDs          []uuid.UUID `json:"credential_ids"`
-	CreatedAt              time.Time   `json:"created_at"`
-	UpdatedAt              time.Time   `json:"updated_at"`
+	// AWX-style targeting
+	Limit               string `json:"limit"`
+	Verbosity           int    `json:"verbosity"`
+	Forks               int    `json:"forks"`
+	JobTags             string `json:"job_tags"`
+	SkipTags            string `json:"skip_tags"`
+	ExtraVars           map[string]any `json:"extra_vars"`
+	// Launch behavior
+	AskInventoryOnLaunch  bool `json:"ask_inventory_on_launch"`
+	AskLimitOnLaunch      bool `json:"ask_limit_on_launch"`
+	AskVerbosityOnLaunch  bool `json:"ask_verbosity_on_launch"`
+	AskVariablesOnLaunch  bool `json:"ask_variables_on_launch"`
+	AskCredentialOnLaunch bool `json:"ask_credential_on_launch"`
+	CreatedAt             time.Time   `json:"created_at"`
+	UpdatedAt             time.Time   `json:"updated_at"`
 }
 
 type JobTemplateCreate struct {
 	Name                   string      `json:"name"`
+	Description            string      `json:"description,omitempty"`
 	ProjectID              uuid.UUID   `json:"project_id"`
 	InventoryID            *uuid.UUID  `json:"inventory_id,omitempty"`
 	ExecutionEnvironmentID *uuid.UUID  `json:"execution_environment_id,omitempty"`
 	Playbook               string      `json:"playbook"`
 	CredentialIDs          []uuid.UUID `json:"credential_ids,omitempty"`
+	Limit                  string      `json:"limit,omitempty"`
+	Verbosity              int         `json:"verbosity,omitempty"`
+	Forks                  int         `json:"forks,omitempty"`
+	JobTags                string      `json:"job_tags,omitempty"`
+	SkipTags               string      `json:"skip_tags,omitempty"`
+	ExtraVars              map[string]any `json:"extra_vars,omitempty"`
+	AskInventoryOnLaunch   bool        `json:"ask_inventory_on_launch,omitempty"`
+	AskLimitOnLaunch       bool        `json:"ask_limit_on_launch,omitempty"`
+	AskVerbosityOnLaunch   bool        `json:"ask_verbosity_on_launch,omitempty"`
+	AskVariablesOnLaunch   bool        `json:"ask_variables_on_launch,omitempty"`
+	AskCredentialOnLaunch  bool        `json:"ask_credential_on_launch,omitempty"`
 }
 
 // ─── Job ──────────────────────────────────────────────────────────────────────
@@ -256,6 +306,10 @@ type JobLaunch struct {
 	ExecutionEnvironmentID *uuid.UUID        `json:"execution_environment_id,omitempty"`
 	ExtraVars              map[string]any    `json:"extra_vars,omitempty"`
 	Credentials            []uuid.UUID       `json:"credentials,omitempty"`
+	Limit                  string            `json:"limit,omitempty"`
+	Verbosity              *int              `json:"verbosity,omitempty"`
+	JobTags                string            `json:"job_tags,omitempty"`
+	SkipTags               string            `json:"skip_tags,omitempty"`
 }
 
 type JobEvent struct {

@@ -88,8 +88,26 @@ export interface Inventory {
 export interface InventoryHost {
   id: string
   name: string
+  description: string
+  inventory_id: string
   variables: Record<string, any>
   enabled: boolean
+  groups: string[]
+  created_at: string
+  updated_at: string
+}
+
+export interface InventoryGroup {
+  id: string
+  name: string
+  description: string
+  inventory_id: string
+  variables: Record<string, any>
+  parent_group_id: string | null
+  host_count: number
+  child_count: number
+  created_at: string
+  updated_at: string
 }
 
 // ─── Job Template ─────────────────────────────────────────────────────────────
@@ -97,12 +115,24 @@ export interface InventoryHost {
 export interface JobTemplate {
   id: string
   name: string
+  description: string
   organization_id: string
   project_id: string
   inventory_id: string | null
   execution_environment_id: string | null
   playbook: string
   credential_ids: string[]
+  limit: string
+  verbosity: number
+  forks: number
+  job_tags: string
+  skip_tags: string
+  extra_vars: Record<string, any>
+  ask_inventory_on_launch: boolean
+  ask_limit_on_launch: boolean
+  ask_verbosity_on_launch: boolean
+  ask_variables_on_launch: boolean
+  ask_credential_on_launch: boolean
   created_at: string
   updated_at: string
 }

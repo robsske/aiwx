@@ -110,9 +110,9 @@ export default function Projects() {
         </div>
       )}
 
-      {isLoading ? (
+      {isLoading && !projects ? (
         <div className="loading">Loading...</div>
-      ) : isError ? (
+      ) : isError && !projects ? (
         <ErrorState message="Failed to load projects" onRetry={() => refetch()} />
       ) : (
         <div className="card">

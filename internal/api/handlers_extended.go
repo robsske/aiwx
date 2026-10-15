@@ -484,6 +484,9 @@ func (d *Deps) handleListInventoryHosts(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to list hosts")
 		return
 	}
+	if hosts == nil {
+		hosts = []domain.InventoryHost{}
+	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"results":  hosts,
@@ -498,10 +501,7 @@ func (d *Deps) handleCreateInventoryHost(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	var input struct {
-		Name      string         `json:"name"`
-		Variables map[string]any `json:"variables"`
-	}
+	var input domain.InventoryHostCreate
 	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
 		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid request body")
 		return
@@ -511,7 +511,7 @@ func (d *Deps) handleCreateInventoryHost(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	host, err := d.Repos.Inventories.AddHost(r.Context(), invID, input.Name, input.Variables)
+	host, err := d.Repos.Inventories.AddHost(r.Context(), invID, input)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to add host")
 		return
@@ -534,6 +534,127 @@ func (d *Deps) handleDeleteInventoryHost(w http.ResponseWriter, r *http.Request)
 
 	if err := d.Repos.Inventories.RemoveHost(r.Context(), invID, hostID); err != nil {
 		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to remove host")
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// ─── Inventory Group Handlers ─────────────────────────────────────────────────
+
+func (d *Deps) handleListInventoryGroups(w http.ResponseWriter, r *http.Request) {
+	invID, err := parseUUID(r.PathValue("id"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid inventory ID")
+		return
+	}
+
+	groups, err := d.Repos.Inventories.ListGroups(r.Context(), invID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to list groups")
+		return
+	}
+	if groups == nil {
+		groups = []domain.InventoryGroup{}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"results":  groups,
+		"has_more": false,
+	})
+}
+
+func (d *Deps) handleCreateInventoryGroup(w http.ResponseWriter, r *http.Request) {
+	invID, err := parseUUID(r.PathValue("id"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid inventory ID")
+		return
+	}
+
+	var input domain.InventoryGroupCreate
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid request body")
+		return
+	}
+	if input.Name == "" {
+		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "Field 'name' is required")
+		return
+	}
+
+	group, err := d.Repos.Inventories.AddGroup(r.Context(), invID, input)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to create group")
+		return
+	}
+
+	writeJSON(w, http.StatusCreated, group)
+}
+
+func (d *Deps) handleDeleteInventoryGroup(w http.ResponseWriter, r *http.Request) {
+	invID, err := parseUUID(r.PathValue("id"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid inventory ID")
+		return
+	}
+	groupID, err := parseUUID(r.PathValue("groupId"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid group ID")
+		return
+	}
+
+	if err := d.Repos.Inventories.RemoveGroup(r.Context(), invID, groupID); err != nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to delete group")
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (d *Deps) handleAddHostToGroup(w http.ResponseWriter, r *http.Request) {
+	if _, err := parseUUID(r.PathValue("id")); err != nil {
+		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid inventory ID")
+		return
+	}
+	groupID, err := parseUUID(r.PathValue("groupId"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid group ID")
+		return
+	}
+
+	var input struct {
+		HostID uuid.UUID `json:"host_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid request body")
+		return
+	}
+
+	if err := d.Repos.Inventories.AddHostToGroup(r.Context(), groupID, input.HostID); err != nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to add host to group")
+		return
+	}
+
+	writeJSON(w, http.StatusCreated, map[string]string{"status": "added"})
+}
+
+func (d *Deps) handleRemoveHostFromGroup(w http.ResponseWriter, r *http.Request) {
+	if _, err := parseUUID(r.PathValue("id")); err != nil {
+		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid inventory ID")
+		return
+	}
+	groupID, err := parseUUID(r.PathValue("groupId"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid group ID")
+		return
+	}
+	hostID, err := parseUUID(r.PathValue("hostId"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid host ID")
+		return
+	}
+
+	if err := d.Repos.Inventories.RemoveHostFromGroup(r.Context(), groupID, hostID); err != nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to remove host from group")
 		return
 	}
 

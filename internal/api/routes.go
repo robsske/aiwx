@@ -96,6 +96,11 @@ func NewRouter(deps Deps) http.Handler {
 	protectedMux.HandleFunc("GET /api/v1/inventories/{id}/hosts", deps.handleListInventoryHosts)
 	protectedMux.HandleFunc("POST /api/v1/inventories/{id}/hosts", deps.handleCreateInventoryHost)
 	protectedMux.HandleFunc("DELETE /api/v1/inventories/{id}/hosts/{hostId}", deps.handleDeleteInventoryHost)
+	protectedMux.HandleFunc("GET /api/v1/inventories/{id}/groups", deps.handleListInventoryGroups)
+	protectedMux.HandleFunc("POST /api/v1/inventories/{id}/groups", deps.handleCreateInventoryGroup)
+	protectedMux.HandleFunc("DELETE /api/v1/inventories/{id}/groups/{groupId}", deps.handleDeleteInventoryGroup)
+	protectedMux.HandleFunc("POST /api/v1/inventories/{id}/groups/{groupId}/hosts", deps.handleAddHostToGroup)
+	protectedMux.HandleFunc("DELETE /api/v1/inventories/{id}/groups/{groupId}/hosts/{hostId}", deps.handleRemoveHostFromGroup)
 
 	// Execution Environments
 	protectedMux.HandleFunc("GET /api/v1/execution-environments", deps.handleListExecutionEnvironments)

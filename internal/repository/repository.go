@@ -797,8 +797,13 @@ func (r *InventoryRepo) DeleteScoped(ctx context.Context, id uuid.UUID, scope do
 
 func (r *InventoryRepo) ListHosts(ctx context.Context, inventoryID uuid.UUID) ([]domain.InventoryHost, error) {
 	rows, err := r.pool.Query(ctx,
-		`SELECT id, name, variables, enabled FROM inventory_hosts
-		 WHERE inventory_id = $1 ORDER BY name`, inventoryID,
+		`SELECT h.id, h.name, h.description, h.inventory_id, h.variables, h.enabled, h.created_at,
+		        COALESCE(ARRAY_AGG(igh.group_id) FILTER (WHERE igh.group_id IS NOT NULL), '{}')
+		 FROM inventory_hosts h
+		 LEFT JOIN inventory_group_hosts igh ON igh.host_id = h.id
+		 WHERE h.inventory_id = $1
+		 GROUP BY h.id, h.name, h.description, h.inventory_id, h.variables, h.enabled, h.created_at
+		 ORDER BY h.name`, inventoryID,
 	)
 	if err != nil {
 		return nil, err
@@ -808,7 +813,8 @@ func (r *InventoryRepo) ListHosts(ctx context.Context, inventoryID uuid.UUID) ([
 	var hosts []domain.InventoryHost
 	for rows.Next() {
 		var h domain.InventoryHost
-		if err := rows.Scan(&h.ID, &h.Name, &h.Variables, &h.Enabled); err != nil {
+		if err := rows.Scan(&h.ID, &h.Name, &h.Description, &h.InventoryID, &h.Variables,
+			&h.Enabled, &h.CreatedAt, &h.Groups); err != nil {
 			return nil, err
 		}
 		hosts = append(hosts, h)
@@ -816,17 +822,25 @@ func (r *InventoryRepo) ListHosts(ctx context.Context, inventoryID uuid.UUID) ([
 	return hosts, nil
 }
 
-func (r *InventoryRepo) AddHost(ctx context.Context, inventoryID uuid.UUID, name string, variables map[string]any) (*domain.InventoryHost, error) {
+func (r *InventoryRepo) AddHost(ctx context.Context, inventoryID uuid.UUID, input domain.InventoryHostCreate) (*domain.InventoryHost, error) {
 	host := &domain.InventoryHost{
-		ID:        uuid.New(),
-		Name:      name,
-		Variables: variables,
-		Enabled:   true,
+		ID:          uuid.New(),
+		Name:        input.Name,
+		Description: input.Description,
+		InventoryID: inventoryID,
+		Variables:   input.Variables,
+		Enabled:     true,
+		CreatedAt:   time.Now(),
+		UpdatedAt:   time.Now(),
+	}
+	if host.Variables == nil {
+		host.Variables = map[string]any{}
 	}
 	_, err := r.pool.Exec(ctx,
-		`INSERT INTO inventory_hosts (id, inventory_id, name, variables, enabled)
-		 VALUES ($1, $2, $3, $4, $5)`,
-		host.ID, inventoryID, host.Name, host.Variables, host.Enabled,
+		`INSERT INTO inventory_hosts (id, inventory_id, name, description, variables, enabled, created_at)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+		host.ID, inventoryID, host.Name, host.Description, host.Variables, host.Enabled,
+		host.CreatedAt,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("insert host: %w", err)
@@ -837,6 +851,80 @@ func (r *InventoryRepo) AddHost(ctx context.Context, inventoryID uuid.UUID, name
 func (r *InventoryRepo) RemoveHost(ctx context.Context, inventoryID, hostID uuid.UUID) error {
 	_, err := r.pool.Exec(ctx,
 		`DELETE FROM inventory_hosts WHERE id = $1 AND inventory_id = $2`, hostID, inventoryID)
+	return err
+}
+
+// ─── Inventory Groups ─────────────────────────────────────────────────────────
+
+func (r *InventoryRepo) ListGroups(ctx context.Context, inventoryID uuid.UUID) ([]domain.InventoryGroup, error) {
+	rows, err := r.pool.Query(ctx,
+		`SELECT g.id, g.name, g.description, g.inventory_id, g.variables, g.parent_group_id,
+		        g.created_at,
+		        (SELECT COUNT(*) FROM inventory_group_hosts gh WHERE gh.group_id = g.id),
+		        (SELECT COUNT(*) FROM inventory_groups c WHERE c.parent_group_id = g.id)
+		 FROM inventory_groups g
+		 WHERE g.inventory_id = $1
+		 ORDER BY g.name`, inventoryID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var groups []domain.InventoryGroup
+	for rows.Next() {
+		var g domain.InventoryGroup
+		if err := rows.Scan(&g.ID, &g.Name, &g.Description, &g.InventoryID, &g.Variables,
+			&g.ParentGroupID, &g.CreatedAt, &g.HostCount, &g.ChildCount); err != nil {
+			return nil, err
+		}
+		groups = append(groups, g)
+	}
+	return groups, nil
+}
+
+func (r *InventoryRepo) AddGroup(ctx context.Context, inventoryID uuid.UUID, input domain.InventoryGroupCreate) (*domain.InventoryGroup, error) {
+	group := &domain.InventoryGroup{
+		ID:            uuid.New(),
+		Name:          input.Name,
+		Description:   input.Description,
+		InventoryID:   inventoryID,
+		Variables:     input.Variables,
+		ParentGroupID: input.ParentGroupID,
+		CreatedAt:     time.Now(),
+		UpdatedAt:     time.Now(),
+	}
+	if group.Variables == nil {
+		group.Variables = map[string]any{}
+	}
+	_, err := r.pool.Exec(ctx,
+		`INSERT INTO inventory_groups (id, inventory_id, name, description, variables, parent_group_id, created_at)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+		group.ID, inventoryID, group.Name, group.Description, group.Variables,
+		group.ParentGroupID, group.CreatedAt,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("insert group: %w", err)
+	}
+	return group, nil
+}
+
+func (r *InventoryRepo) RemoveGroup(ctx context.Context, inventoryID, groupID uuid.UUID) error {
+	_, err := r.pool.Exec(ctx,
+		`DELETE FROM inventory_groups WHERE id = $1 AND inventory_id = $2`, groupID, inventoryID)
+	return err
+}
+
+func (r *InventoryRepo) AddHostToGroup(ctx context.Context, groupID, hostID uuid.UUID) error {
+	_, err := r.pool.Exec(ctx,
+		`INSERT INTO inventory_group_hosts (group_id, host_id) VALUES ($1, $2)
+		 ON CONFLICT DO NOTHING`, groupID, hostID)
+	return err
+}
+
+func (r *InventoryRepo) RemoveHostFromGroup(ctx context.Context, groupID, hostID uuid.UUID) error {
+	_, err := r.pool.Exec(ctx,
+		`DELETE FROM inventory_group_hosts WHERE group_id = $1 AND host_id = $2`, groupID, hostID)
 	return err
 }
 

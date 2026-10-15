@@ -157,15 +157,26 @@ func (w *Worker) loadSpec(ctx context.Context, job *domain.Job) (*JobSpec, error
 		var playbook *string
 		var projectID *uuid.UUID
 		var inventoryID *uuid.UUID
+		var limit string
+		var verbosity int
+		var forks int
+		var jobTags string
+		var skipTags string
 
 		err := w.pool.QueryRow(ctx,
-			`SELECT playbook, project_id, inventory_id FROM job_templates WHERE id = $1`,
+			`SELECT playbook, project_id, inventory_id, limit_hosts, verbosity, forks, job_tags, skip_tags
+			 FROM job_templates WHERE id = $1`,
 			job.JobTemplateID,
-		).Scan(&playbook, &projectID, &inventoryID)
+		).Scan(&playbook, &projectID, &inventoryID, &limit, &verbosity, &forks, &jobTags, &skipTags)
 		if err == nil {
 			if playbook != nil {
 				spec.Playbook = *playbook
 			}
+			spec.Limit = limit
+			spec.Verbosity = verbosity
+			spec.Forks = forks
+			spec.JobTags = jobTags
+			spec.SkipTags = skipTags
 
 			// Resolve project directory from synced artifacts
 			if projectID != nil {

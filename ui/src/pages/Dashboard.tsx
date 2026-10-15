@@ -47,9 +47,9 @@ export default function Dashboard() {
       <div className="content-grid">
         <div className="card">
           <h2 className="card-title">Recent Jobs</h2>
-          {jobsLoading ? (
+          {jobsLoading && !jobs ? (
             <div className="loading">Loading...</div>
-          ) : jobsError ? (
+          ) : jobsError && !jobs ? (
             <ErrorState message="Failed to load jobs" onRetry={() => refetchJobs()} />
           ) : recentJobs.length === 0 ? (
             <div className="empty-state">No jobs yet</div>
@@ -81,9 +81,9 @@ export default function Dashboard() {
 
         <div className="card">
           <h2 className="card-title">Recent Projects</h2>
-          {projectsLoading ? (
+          {projectsLoading && !projects ? (
             <div className="loading">Loading...</div>
-          ) : projectsError ? (
+          ) : projectsError && !projects ? (
             <ErrorState message="Failed to load projects" onRetry={() => refetchProjects()} />
           ) : projects?.results?.length === 0 ? (
             <div className="empty-state">No projects yet</div>

@@ -15,6 +15,12 @@ type JobSpec struct {
 	Inventory   string
 	Credentials []uuid.UUID
 	ProjectDir  string
+	// AWX-style targeting
+	Limit     string
+	Verbosity int
+	Forks     int
+	JobTags   string
+	SkipTags  string
 }
 
 // JobResult is the outcome of a job run.
