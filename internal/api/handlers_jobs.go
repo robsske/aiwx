@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/rverhe/aiwx/internal/domain"
 )
 
@@ -59,7 +60,12 @@ func (d *Deps) handleGetJobTemplate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	jt, err := d.Repos.JobTemplates.GetByID(r.Context(), id)
+	scope, ok := d.requireScope(w, r)
+	if !ok {
+		return
+	}
+
+	jt, err := d.Repos.JobTemplates.GetByIDScoped(r.Context(), id, scope)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "NOT_FOUND", "Job template not found")
 		return
@@ -75,7 +81,16 @@ func (d *Deps) handleDeleteJobTemplate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := d.Repos.JobTemplates.Delete(r.Context(), id); err != nil {
+	scope, ok := d.requireScope(w, r)
+	if !ok {
+		return
+	}
+
+	if err := d.Repos.JobTemplates.DeleteScoped(r.Context(), id, scope); err != nil {
+		if err == pgx.ErrNoRows {
+			writeError(w, http.StatusNotFound, "NOT_FOUND", "Job template not found")
+			return
+		}
 		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to delete job template")
 		return
 	}
@@ -92,8 +107,13 @@ func (d *Deps) handleLaunchJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Validate template exists
-	template, err := d.Repos.JobTemplates.GetByID(r.Context(), templateID)
+	scope, ok := d.requireScope(w, r)
+	if !ok {
+		return
+	}
+
+	// Validate template exists and is in scope
+	template, err := d.Repos.JobTemplates.GetByIDScoped(r.Context(), templateID, scope)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "NOT_FOUND", "Job template not found")
 		return
@@ -108,43 +128,13 @@ func (d *Deps) handleLaunchJob(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Create job record
-	job, err := d.Repos.Jobs.Create(r.Context(), &templateID, template.OrganizationID, launch)
+	// Atomically create job + outbox event + first job event
+	job, err := d.Repos.Jobs.CreateAndEnqueue(r.Context(), &templateID, template.OrganizationID, launch, d.Outbox)
 	if err != nil {
+		d.Logger.Error("create and enqueue job failed", "error", err, "template_id", templateID)
 		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to create job")
 		return
 	}
-
-	// Write outbox event in the same transaction (simulated - in real impl this would be atomic)
-	// TODO: Make this truly transactional with the job creation
-	err = d.Outbox.Enqueue(r.Context(),
-		"job.created",
-		"job",
-		job.ID,
-		map[string]any{
-			"job_id":             job.ID.String(),
-			"job_template_id":    templateID.String(),
-			"organization_id":    template.OrganizationID.String(),
-			"execution_environment_id": template.ExecutionEnvironmentID,
-			"inventory_id":       template.InventoryID,
-			"playbook":           template.Playbook,
-		},
-		"job-launch-"+job.ID.String(),
-	)
-	if err != nil {
-		// Log but don't fail - the reconciler will catch this
-		d.Logger.Error("failed to enqueue outbox event", "error", err, "job_id", job.ID)
-	}
-
-	// Transition to pending
-	if err := d.Repos.Jobs.UpdateStatus(r.Context(), job.ID, domain.JobStatusPending, "job created"); err != nil {
-		d.Logger.Error("failed to update job status", "error", err, "job_id", job.ID)
-	}
-
-	// Create job event
-	d.Repos.JobEvents.Create(r.Context(), job.ID, "job.created", map[string]any{
-		"template": template.Name,
-	})
 
 	writeJSON(w, http.StatusCreated, job)
 }
@@ -175,7 +165,12 @@ func (d *Deps) handleGetJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	job, err := d.Repos.Jobs.GetByID(r.Context(), id)
+	scope, ok := d.requireScope(w, r)
+	if !ok {
+		return
+	}
+
+	job, err := d.Repos.Jobs.GetByIDScoped(r.Context(), id, scope)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "NOT_FOUND", "Job not found")
 		return
@@ -191,6 +186,17 @@ func (d *Deps) handleGetJobEvents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	scope, ok := d.requireScope(w, r)
+	if !ok {
+		return
+	}
+
+	// Verify job is in scope before listing events
+	if _, err := d.Repos.Jobs.GetByIDScoped(r.Context(), jobID, scope); err != nil {
+		writeError(w, http.StatusNotFound, "NOT_FOUND", "Job not found")
+		return
+	}
+
 	events, err := d.Repos.JobEvents.ListByJob(r.Context(), jobID, 100)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to list job events")
@@ -203,6 +209,36 @@ func (d *Deps) handleGetJobEvents(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (d *Deps) handleGetJobLogs(w http.ResponseWriter, r *http.Request) {
+	jobID, err := parseUUID(r.PathValue("id"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid job ID")
+		return
+	}
+
+	scope, ok := d.requireScope(w, r)
+	if !ok {
+		return
+	}
+
+	// Verify job is in scope
+	if _, err := d.Repos.Jobs.GetByIDScoped(r.Context(), jobID, scope); err != nil {
+		writeError(w, http.StatusNotFound, "NOT_FOUND", "Job not found")
+		return
+	}
+
+	logs, err := d.Repos.JobLogs.ListByJob(r.Context(), jobID, 500)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to list job logs")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"results":  logs,
+		"has_more": false,
+	})
+}
+
 func (d *Deps) handleCancelJob(w http.ResponseWriter, r *http.Request) {
 	id, err := parseUUID(r.PathValue("id"))
 	if err != nil {
@@ -210,7 +246,12 @@ func (d *Deps) handleCancelJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	job, err := d.Repos.Jobs.GetByID(r.Context(), id)
+	scope, ok := d.requireScope(w, r)
+	if !ok {
+		return
+	}
+
+	job, err := d.Repos.Jobs.GetByIDScoped(r.Context(), id, scope)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "NOT_FOUND", "Job not found")
 		return

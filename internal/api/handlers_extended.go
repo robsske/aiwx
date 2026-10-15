@@ -1,10 +1,12 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/rverhe/aiwx/internal/auth"
 	"github.com/rverhe/aiwx/internal/domain"
 )
@@ -41,12 +43,22 @@ func (d *Deps) handleAuthToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	roles, orgID, err := d.Repos.RoleAssignments.ListRolesForUser(r.Context(), cred.User.ID)
-	if err != nil || len(roles) == 0 {
-		roles = []string{string(domain.RolePlatformAdmin)}
+	effectiveRoles, err := d.Repos.RoleAssignments.ListRolesForUser(r.Context(), cred.User.ID)
+	if err != nil || len(effectiveRoles) == 0 {
+		effectiveRoles = []domain.EffectiveRole{{Role: domain.RolePlatformAdmin}}
 	}
 
-	accessToken, err := d.Issuer.Issue(cred.User.ID, orgID, roles)
+	// Build roles list and pick primary org for the token.
+	var roleNames []string
+	orgID := uuid.Nil
+	for _, er := range effectiveRoles {
+		roleNames = append(roleNames, string(er.Role))
+		if orgID == uuid.Nil {
+			orgID = er.OrgID
+		}
+	}
+
+	accessToken, err := d.Issuer.Issue(cred.User.ID, orgID, roleNames)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to issue token")
 		return
@@ -136,7 +148,12 @@ func (d *Deps) handleGetTeam(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	team, err := d.Repos.Teams.GetByID(r.Context(), teamID)
+	scope, ok := d.requireScope(w, r)
+	if !ok {
+		return
+	}
+
+	team, err := d.Repos.Teams.GetByIDScoped(r.Context(), teamID, scope)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "NOT_FOUND", "Team not found")
 		return
@@ -152,7 +169,17 @@ func (d *Deps) handleDeleteTeam(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := d.Repos.Teams.Delete(r.Context(), teamID); err != nil {
+	scope, ok := d.requireScope(w, r)
+	if !ok {
+		return
+	}
+
+	if err := d.Repos.Teams.DeleteScoped(r.Context(), teamID, scope); err != nil {
+		// 404 for out-of-scope (avoid ID oracle), 500 for real errors
+		if err == pgx.ErrNoRows {
+			writeError(w, http.StatusNotFound, "NOT_FOUND", "Team not found")
+			return
+		}
 		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to delete team")
 		return
 	}
@@ -318,7 +345,12 @@ func (d *Deps) handleGetCredential(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cred, err := d.Repos.Credentials.GetByID(r.Context(), id)
+	scope, ok := d.requireScope(w, r)
+	if !ok {
+		return
+	}
+
+	cred, err := d.Repos.Credentials.GetByIDScoped(r.Context(), id, scope)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "NOT_FOUND", "Credential not found")
 		return
@@ -334,7 +366,16 @@ func (d *Deps) handleDeleteCredential(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := d.Repos.Credentials.Delete(r.Context(), id); err != nil {
+	scope, ok := d.requireScope(w, r)
+	if !ok {
+		return
+	}
+
+	if err := d.Repos.Credentials.DeleteScoped(r.Context(), id, scope); err != nil {
+		if err == pgx.ErrNoRows {
+			writeError(w, http.StatusNotFound, "NOT_FOUND", "Credential not found")
+			return
+		}
 		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to delete credential")
 		return
 	}
@@ -393,7 +434,12 @@ func (d *Deps) handleGetInventory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	inv, err := d.Repos.Inventories.GetByID(r.Context(), id)
+	scope, ok := d.requireScope(w, r)
+	if !ok {
+		return
+	}
+
+	inv, err := d.Repos.Inventories.GetByIDScoped(r.Context(), id, scope)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "NOT_FOUND", "Inventory not found")
 		return
@@ -409,7 +455,16 @@ func (d *Deps) handleDeleteInventory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := d.Repos.Inventories.Delete(r.Context(), id); err != nil {
+	scope, ok := d.requireScope(w, r)
+	if !ok {
+		return
+	}
+
+	if err := d.Repos.Inventories.DeleteScoped(r.Context(), id, scope); err != nil {
+		if err == pgx.ErrNoRows {
+			writeError(w, http.StatusNotFound, "NOT_FOUND", "Inventory not found")
+			return
+		}
 		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to delete inventory")
 		return
 	}
@@ -536,7 +591,12 @@ func (d *Deps) handleGetExecutionEnvironment(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	ee, err := d.Repos.ExecutionEnvironments.GetByID(r.Context(), id)
+	scope, ok := d.requireScope(w, r)
+	if !ok {
+		return
+	}
+
+	ee, err := d.Repos.ExecutionEnvironments.GetByIDScoped(r.Context(), id, scope)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "NOT_FOUND", "Execution environment not found")
 		return
@@ -552,7 +612,16 @@ func (d *Deps) handleDeleteExecutionEnvironment(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	if err := d.Repos.ExecutionEnvironments.Delete(r.Context(), id); err != nil {
+	scope, ok := d.requireScope(w, r)
+	if !ok {
+		return
+	}
+
+	if err := d.Repos.ExecutionEnvironments.DeleteScoped(r.Context(), id, scope); err != nil {
+		if err == pgx.ErrNoRows {
+			writeError(w, http.StatusNotFound, "NOT_FOUND", "Execution environment not found")
+			return
+		}
 		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to delete execution environment")
 		return
 	}
@@ -592,8 +661,17 @@ func (d *Deps) handleUpdateProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	project, err := d.Repos.Projects.Update(r.Context(), id, input)
+	scope, ok := d.requireScope(w, r)
+	if !ok {
+		return
+	}
+
+	project, err := d.Repos.Projects.UpdateScoped(r.Context(), id, scope, input)
 	if err != nil {
+		if err == pgx.ErrNoRows {
+			writeError(w, http.StatusNotFound, "NOT_FOUND", "Project not found")
+			return
+		}
 		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to update project")
 		return
 	}
@@ -608,7 +686,16 @@ func (d *Deps) handleDeleteProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := d.Repos.Projects.Delete(r.Context(), id); err != nil {
+	scope, ok := d.requireScope(w, r)
+	if !ok {
+		return
+	}
+
+	if err := d.Repos.Projects.DeleteScoped(r.Context(), id, scope); err != nil {
+		if err == pgx.ErrNoRows {
+			writeError(w, http.StatusNotFound, "NOT_FOUND", "Project not found")
+			return
+		}
 		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to delete project")
 		return
 	}
@@ -623,7 +710,12 @@ func (d *Deps) handleSyncProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	project, err := d.Repos.Projects.GetByID(r.Context(), id)
+	scope, ok := d.requireScope(w, r)
+	if !ok {
+		return
+	}
+
+	project, err := d.Repos.Projects.GetByIDScoped(r.Context(), id, scope)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "NOT_FOUND", "Project not found")
 		return
@@ -634,7 +726,27 @@ func (d *Deps) handleSyncProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// TODO: Trigger async project sync
+	// Mark as running
+	if err := d.Repos.Projects.UpdateSyncStatus(r.Context(), id, "running", "", "", ""); err != nil {
+		d.Logger.Error("failed to update sync status", "error", err, "project_id", id)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to start sync")
+		return
+	}
+
+	// Run sync in background
+	go func() {
+		ctx := context.Background()
+		if d.SyncWorker != nil {
+			if err := d.SyncWorker.Sync(ctx, id); err != nil {
+				d.Logger.Error("project sync failed", "error", err, "project_id", id)
+				d.Repos.Projects.UpdateSyncStatus(ctx, id, "failed", "", "", err.Error())
+			}
+		} else {
+			// No sync worker — mark as failed
+			d.Repos.Projects.UpdateSyncStatus(ctx, id, "failed", "", "", "sync worker not configured")
+		}
+	}()
+
 	writeJSON(w, http.StatusAccepted, map[string]string{
 		"status": "sync_started",
 		"project_id": id.String(),

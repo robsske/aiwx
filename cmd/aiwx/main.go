@@ -12,7 +12,11 @@ import (
 
 	"github.com/rverhe/aiwx/internal/api"
 	"github.com/rverhe/aiwx/internal/auth"
+	"github.com/rverhe/aiwx/internal/outbox"
+	"github.com/rverhe/aiwx/internal/rbac"
+	"github.com/rverhe/aiwx/internal/reconcile"
 	"github.com/rverhe/aiwx/internal/repository"
+	"github.com/rverhe/aiwx/internal/service"
 )
 
 func main() {
@@ -32,9 +36,17 @@ func main() {
 
 	repos := repository.New(db)
 
-	if err := repository.SeedDevAdmin(context.Background(), repos, logger); err != nil {
-		logger.Error("failed to seed dev admin", "error", err)
-		os.Exit(1)
+	// Seed admin only when explicitly requested (dev convenience).
+	if os.Getenv("AIWX_SEED_ADMIN") == "1" {
+		password := os.Getenv("SEED_ADMIN_PASSWORD")
+		if password == "" {
+			logger.Error("SEED_ADMIN_PASSWORD is required when AIWX_SEED_ADMIN=1")
+			os.Exit(1)
+		}
+		if err := repository.SeedDevAdmin(context.Background(), repos, logger, password); err != nil {
+			logger.Error("failed to seed dev admin", "error", err)
+			os.Exit(1)
+		}
 	}
 
 	jwtValidator := auth.NewJWTValidator(cfg.JWTSecret, "aiwx")
@@ -42,13 +54,22 @@ func main() {
 	hasher := auth.NewTokenHasher(cfg.JWTSecret)
 	extractor := auth.NewExtractor(jwtValidator, nil, hasher)
 
+	outboxStore := outbox.NewStore(db.Pool)
+	checker := rbac.New(repos.RoleAssignments)
+
+	// Set up project sync worker
+	syncAdapter := api.NewGitSyncAdapter(repos.Projects, logger)
+
 	router := api.NewRouter(api.Deps{
-		Logger:    logger,
-		DB:        db,
-		Repos:     repos,
-		Extractor: extractor,
-		Issuer:    tokenIssuer,
-		Config:    cfg,
+		Logger:     logger,
+		DB:         db,
+		Repos:      repos,
+		Extractor:  extractor,
+		Issuer:     tokenIssuer,
+		Outbox:     outboxStore,
+		Checker:    checker,
+		SyncWorker: syncAdapter,
+		Config:     cfg,
 	})
 
 	srv := &http.Server{
@@ -62,6 +83,29 @@ func main() {
 	// Graceful shutdown
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+
+	// Start job worker with real ansible-playbook runner
+	runner := service.NewLocalRunner(
+		"/home/rverhe/aiwx/.venv/bin/ansible-playbook",
+		"/tmp/aiwx-artifacts",
+		repos.JobLogs,
+	)
+	worker := service.NewWorker(db.Pool, runner, logger)
+	go func() {
+		logger.Info("starting job worker", "ansible", "/home/rverhe/aiwx/.venv/bin/ansible-playbook")
+		if err := worker.Run(ctx); err != nil && err != context.Canceled {
+			logger.Error("worker failed", "error", err)
+		}
+	}()
+
+	// Start reconciler (marks stale running jobs as failed after 30 min)
+	rec := reconcile.New(repos.Jobs, logger, 30*time.Minute)
+	go func() {
+		logger.Info("starting reconciler")
+		if err := rec.Run(ctx); err != nil && err != context.Canceled {
+			logger.Error("reconciler failed", "error", err)
+		}
+	}()
 
 	go func() {
 		logger.Info("starting AIWX control plane", "port", cfg.Port)
@@ -99,5 +143,15 @@ func loadConfig() Config {
 	if port := os.Getenv("PORT"); port != "" {
 		fmt.Sscanf(port, "%d", &cfg.Port)
 	}
+
+	if cfg.DatabaseURL == "" {
+		fmt.Fprintln(os.Stderr, "FATAL: DATABASE_URL is required")
+		os.Exit(1)
+	}
+	if cfg.JWTSecret == "" {
+		fmt.Fprintln(os.Stderr, "FATAL: JWT_SECRET is required")
+		os.Exit(1)
+	}
+
 	return cfg
 }

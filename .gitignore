@@ -37,3 +37,5 @@ ui/dist/
 
 # Agent / local tooling
 .mimocode/
+.venv/
+ui/node_modules/

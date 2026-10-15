@@ -274,6 +274,35 @@ type PageInfo struct {
 	HasMore    bool   `json:"has_more"`
 }
 
+// ─── Authorization Scope ──────────────────────────────────────────────────────
+
+// Scope represents a caller's authorization scope for tenant isolation.
+type Scope struct {
+	UserID           uuid.UUID
+	OrgIDs           []uuid.UUID
+	IsPlatformAdmin  bool
+}
+
+// EffectiveRole represents a role assignment with its scope.
+type EffectiveRole struct {
+	Role  RoleName
+	OrgID uuid.UUID
+	TeamID *uuid.UUID
+}
+
+// AllowsOrg returns true if the scope grants access to the given org.
+func (s Scope) AllowsOrg(orgID uuid.UUID) bool {
+	if s.IsPlatformAdmin {
+		return true
+	}
+	for _, id := range s.OrgIDs {
+		if id == orgID {
+			return true
+		}
+	}
+	return false
+}
+
 // ─── Errors ───────────────────────────────────────────────────────────────────
 
 type APIError struct {

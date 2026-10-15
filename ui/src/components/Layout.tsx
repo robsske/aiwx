@@ -5,6 +5,7 @@ import { useAuth } from '../hooks/useAuth'
 const navigation = [
   { name: 'Dashboard', href: '/', icon: '📊' },
   { name: 'Projects', href: '/projects', icon: '📁' },
+  { name: 'Job Templates', href: '/job-templates', icon: '📋' },
   { name: 'Jobs', href: '/jobs', icon: '▶️' },
   { name: 'Credentials', href: '/credentials', icon: '🔑' },
   { name: 'Inventories', href: '/inventories', icon: '🖥️' },

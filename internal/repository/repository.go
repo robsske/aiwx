@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/rverhe/aiwx/internal/auth"
 	"github.com/rverhe/aiwx/internal/domain"
@@ -94,6 +95,40 @@ func (r *OrganizationRepo) List(ctx context.Context, limit int, cursor string) (
 		 WHERE ($1 = '' OR id > $1::uuid)
 		 ORDER BY id
 		 LIMIT $2`, cursor, limit+1,
+	)
+	if err != nil {
+		return nil, "", false, err
+	}
+	defer rows.Close()
+
+	var orgs []domain.Organization
+	for rows.Next() {
+		var org domain.Organization
+		if err := rows.Scan(&org.ID, &org.Name, &org.DisplayName, &org.Status, &org.CreatedAt, &org.UpdatedAt); err != nil {
+			return nil, "", false, err
+		}
+		orgs = append(orgs, org)
+	}
+
+	hasMore := len(orgs) > limit
+	if hasMore {
+		orgs = orgs[:limit]
+	}
+	nextCursor := ""
+	if len(orgs) > 0 {
+		nextCursor = orgs[len(orgs)-1].ID.String()
+	}
+	return orgs, nextCursor, hasMore, nil
+}
+
+// ListByIDs returns only the organizations matching the given IDs.
+func (r *OrganizationRepo) ListByIDs(ctx context.Context, ids []uuid.UUID, limit int, cursor string) ([]domain.Organization, string, bool, error) {
+	rows, err := r.pool.Query(ctx,
+		`SELECT id, name, display_name, status, created_at, updated_at
+		 FROM organizations
+		 WHERE id = ANY($1) AND ($2 = '' OR id > $2::uuid)
+		 ORDER BY id
+		 LIMIT $3`, ids, cursor, limit+1,
 	)
 	if err != nil {
 		return nil, "", false, err
@@ -310,6 +345,23 @@ func (r *TeamRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.Team, err
 	return team, nil
 }
 
+func (r *TeamRepo) GetByIDScoped(ctx context.Context, id uuid.UUID, scope domain.Scope) (*domain.Team, error) {
+	if scope.IsPlatformAdmin {
+		return r.GetByID(ctx, id)
+	}
+	team := &domain.Team{}
+	err := r.pool.QueryRow(ctx,
+		`SELECT t.id, t.name, t.display_name, t.organization_id, t.created_at, t.updated_at,
+		        (SELECT COUNT(*) FROM team_members tm WHERE tm.team_id = t.id)
+		 FROM teams t WHERE t.id = $1 AND t.organization_id = ANY($2)`, id, scope.OrgIDs,
+	).Scan(&team.ID, &team.Name, &team.DisplayName, &team.OrganizationID,
+		&team.CreatedAt, &team.UpdatedAt, &team.MemberCount)
+	if err != nil {
+		return nil, err
+	}
+	return team, nil
+}
+
 func (r *TeamRepo) ListByOrg(ctx context.Context, orgID uuid.UUID) ([]domain.Team, error) {
 	rows, err := r.pool.Query(ctx,
 		`SELECT t.id, t.name, t.display_name, t.organization_id, t.created_at, t.updated_at,
@@ -336,6 +388,23 @@ func (r *TeamRepo) ListByOrg(ctx context.Context, orgID uuid.UUID) ([]domain.Tea
 func (r *TeamRepo) Delete(ctx context.Context, id uuid.UUID) error {
 	_, err := r.pool.Exec(ctx, `DELETE FROM teams WHERE id = $1`, id)
 	return err
+}
+
+func (r *TeamRepo) DeleteScoped(ctx context.Context, id uuid.UUID, scope domain.Scope) error {
+	if scope.IsPlatformAdmin {
+		return r.Delete(ctx, id)
+	}
+	tag, err := r.pool.Exec(ctx,
+		`DELETE FROM teams WHERE id = $1 AND organization_id = ANY($2)`,
+		id, scope.OrgIDs,
+	)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return pgx.ErrNoRows
+	}
+	return nil
 }
 
 func (r *TeamRepo) AddMember(ctx context.Context, teamID, userID uuid.UUID) error {
@@ -398,10 +467,10 @@ func (r *RoleAssignmentRepo) Delete(ctx context.Context, id uuid.UUID) error {
 	return err
 }
 
-// ListRolesForUser returns role names and the primary organization for a user.
-func (r *RoleAssignmentRepo) ListRolesForUser(ctx context.Context, userID uuid.UUID) ([]string, uuid.UUID, error) {
+// ListRolesForUser returns all role assignments for a user across all orgs.
+func (r *RoleAssignmentRepo) ListRolesForUser(ctx context.Context, userID uuid.UUID) ([]domain.EffectiveRole, error) {
 	rows, err := r.pool.Query(ctx,
-		`SELECT r.name, ra.organization_id
+		`SELECT r.name, ra.organization_id, ra.team_id
 		 FROM role_assignments ra
 		 JOIN roles r ON r.id = ra.role_id
 		 WHERE ra.user_id = $1
@@ -409,24 +478,49 @@ func (r *RoleAssignmentRepo) ListRolesForUser(ctx context.Context, userID uuid.U
 		userID,
 	)
 	if err != nil {
-		return nil, uuid.Nil, err
+		return nil, err
 	}
 	defer rows.Close()
 
-	var roles []string
-	orgID := uuid.Nil
+	var roles []domain.EffectiveRole
 	for rows.Next() {
-		var name string
-		var org uuid.UUID
-		if err := rows.Scan(&name, &org); err != nil {
-			return nil, uuid.Nil, err
+		var er domain.EffectiveRole
+		if err := rows.Scan(&er.Role, &er.OrgID, &er.TeamID); err != nil {
+			return nil, err
 		}
-		roles = append(roles, name)
-		if orgID == uuid.Nil {
-			orgID = org
-		}
+		roles = append(roles, er)
 	}
-	return roles, orgID, rows.Err()
+	return roles, rows.Err()
+}
+
+// EffectiveRoles returns all roles for a user, expanding team-scoped roles
+// to the user through team membership.
+func (r *RoleAssignmentRepo) EffectiveRoles(ctx context.Context, userID uuid.UUID) ([]domain.EffectiveRole, error) {
+	rows, err := r.pool.Query(ctx,
+		`SELECT r.name, ra.organization_id, ra.team_id
+		 FROM role_assignments ra
+		 JOIN roles r ON r.id = ra.role_id
+		 WHERE ra.user_id = $1
+		   OR (ra.team_id IS NOT NULL AND ra.team_id IN (
+		       SELECT tm.team_id FROM team_members tm WHERE tm.user_id = $1
+		   ))
+		 ORDER BY ra.created_at`,
+		userID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var roles []domain.EffectiveRole
+	for rows.Next() {
+		var er domain.EffectiveRole
+		if err := rows.Scan(&er.Role, &er.OrgID, &er.TeamID); err != nil {
+			return nil, err
+		}
+		roles = append(roles, er)
+	}
+	return roles, rows.Err()
 }
 
 // ─── Credentials ──────────────────────────────────────────────────────────────
@@ -477,6 +571,23 @@ func (r *CredentialRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.Cre
 	return cred, nil
 }
 
+func (r *CredentialRepo) GetByIDScoped(ctx context.Context, id uuid.UUID, scope domain.Scope) (*domain.Credential, error) {
+	if scope.IsPlatformAdmin {
+		return r.GetByID(ctx, id)
+	}
+	cred := &domain.Credential{}
+	err := r.pool.QueryRow(ctx,
+		`SELECT id, organization_id, name, credential_type_id, inputs, created_at, updated_at
+		 FROM credentials WHERE id = $1 AND organization_id = ANY($2)`, id, scope.OrgIDs,
+	).Scan(&cred.ID, &cred.OrganizationID, &cred.Name, &cred.CredentialTypeID,
+		&cred.Inputs, &cred.CreatedAt, &cred.UpdatedAt)
+	if err != nil {
+		return nil, err
+	}
+	cred.Inputs = redactSecrets(cred.Inputs)
+	return cred, nil
+}
+
 func (r *CredentialRepo) ListByOrg(ctx context.Context, orgID uuid.UUID) ([]domain.Credential, error) {
 	rows, err := r.pool.Query(ctx,
 		`SELECT id, organization_id, name, credential_type_id, inputs, created_at, updated_at
@@ -503,6 +614,23 @@ func (r *CredentialRepo) ListByOrg(ctx context.Context, orgID uuid.UUID) ([]doma
 func (r *CredentialRepo) Delete(ctx context.Context, id uuid.UUID) error {
 	_, err := r.pool.Exec(ctx, `DELETE FROM credentials WHERE id = $1`, id)
 	return err
+}
+
+func (r *CredentialRepo) DeleteScoped(ctx context.Context, id uuid.UUID, scope domain.Scope) error {
+	if scope.IsPlatformAdmin {
+		return r.Delete(ctx, id)
+	}
+	tag, err := r.pool.Exec(ctx,
+		`DELETE FROM credentials WHERE id = $1 AND organization_id = ANY($2)`,
+		id, scope.OrgIDs,
+	)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return pgx.ErrNoRows
+	}
+	return nil
 }
 
 // ListTypes returns available credential type definitions.
@@ -599,6 +727,26 @@ func (r *InventoryRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.Inve
 	return inv, nil
 }
 
+func (r *InventoryRepo) GetByIDScoped(ctx context.Context, id uuid.UUID, scope domain.Scope) (*domain.Inventory, error) {
+	if scope.IsPlatformAdmin {
+		return r.GetByID(ctx, id)
+	}
+	inv := &domain.Inventory{}
+	err := r.pool.QueryRow(ctx,
+		`SELECT i.id, i.name, i.description, i.organization_id, i.has_active_inventory_sources,
+		        i.created_at, i.updated_at,
+		        (SELECT COUNT(*) FROM inventory_hosts h WHERE h.inventory_id = i.id),
+		        (SELECT COUNT(*) FROM inventory_groups g WHERE g.inventory_id = i.id)
+		 FROM inventories i WHERE i.id = $1 AND i.organization_id = ANY($2)`, id, scope.OrgIDs,
+	).Scan(&inv.ID, &inv.Name, &inv.Description, &inv.OrganizationID,
+		&inv.HasActiveInventorySources, &inv.CreatedAt, &inv.UpdatedAt,
+		&inv.HostCount, &inv.GroupCount)
+	if err != nil {
+		return nil, err
+	}
+	return inv, nil
+}
+
 func (r *InventoryRepo) ListByOrg(ctx context.Context, orgID uuid.UUID) ([]domain.Inventory, error) {
 	rows, err := r.pool.Query(ctx,
 		`SELECT i.id, i.name, i.description, i.organization_id, i.has_active_inventory_sources,
@@ -628,6 +776,23 @@ func (r *InventoryRepo) ListByOrg(ctx context.Context, orgID uuid.UUID) ([]domai
 func (r *InventoryRepo) Delete(ctx context.Context, id uuid.UUID) error {
 	_, err := r.pool.Exec(ctx, `DELETE FROM inventories WHERE id = $1`, id)
 	return err
+}
+
+func (r *InventoryRepo) DeleteScoped(ctx context.Context, id uuid.UUID, scope domain.Scope) error {
+	if scope.IsPlatformAdmin {
+		return r.Delete(ctx, id)
+	}
+	tag, err := r.pool.Exec(ctx,
+		`DELETE FROM inventories WHERE id = $1 AND organization_id = ANY($2)`,
+		id, scope.OrgIDs,
+	)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return pgx.ErrNoRows
+	}
+	return nil
 }
 
 func (r *InventoryRepo) ListHosts(ctx context.Context, inventoryID uuid.UUID) ([]domain.InventoryHost, error) {
@@ -725,6 +890,24 @@ func (r *ExecutionEnvironmentRepo) GetByID(ctx context.Context, id uuid.UUID) (*
 	return ee, nil
 }
 
+func (r *ExecutionEnvironmentRepo) GetByIDScoped(ctx context.Context, id uuid.UUID, scope domain.Scope) (*domain.ExecutionEnvironment, error) {
+	if scope.IsPlatformAdmin {
+		return r.GetByID(ctx, id)
+	}
+	ee := &domain.ExecutionEnvironment{}
+	err := r.pool.QueryRow(ctx,
+		`SELECT id, organization_id, name, image, digest, pull_policy, created_at, updated_at
+		 FROM execution_environments WHERE id = $1
+		   AND (organization_id = ANY($2) OR organization_id IS NULL)`,
+		id, scope.OrgIDs,
+	).Scan(&ee.ID, &ee.OrganizationID, &ee.Name, &ee.Image, &ee.Digest,
+		&ee.PullPolicy, &ee.CreatedAt, &ee.UpdatedAt)
+	if err != nil {
+		return nil, err
+	}
+	return ee, nil
+}
+
 func (r *ExecutionEnvironmentRepo) ListByOrg(ctx context.Context, orgID uuid.UUID) ([]domain.ExecutionEnvironment, error) {
 	rows, err := r.pool.Query(ctx,
 		`SELECT id, organization_id, name, image, digest, pull_policy, created_at, updated_at
@@ -754,7 +937,44 @@ func (r *ExecutionEnvironmentRepo) Delete(ctx context.Context, id uuid.UUID) err
 	return err
 }
 
+func (r *ExecutionEnvironmentRepo) DeleteScoped(ctx context.Context, id uuid.UUID, scope domain.Scope) error {
+	if scope.IsPlatformAdmin {
+		return r.Delete(ctx, id)
+	}
+	tag, err := r.pool.Exec(ctx,
+		`DELETE FROM execution_environments WHERE id = $1
+		   AND (organization_id = ANY($2) OR organization_id IS NULL)`,
+		id, scope.OrgIDs,
+	)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return pgx.ErrNoRows
+	}
+	return nil
+}
+
 // ─── Project (extended) ───────────────────────────────────────────────────────
+
+func (r *ProjectRepo) GetByIDScoped(ctx context.Context, id uuid.UUID, scope domain.Scope) (*domain.Project, error) {
+	if scope.IsPlatformAdmin {
+		return r.GetByID(ctx, id)
+	}
+	p := &domain.Project{}
+	err := r.pool.QueryRow(ctx,
+		`SELECT id, name, organization_id, scm_url, scm_branch, scm_credential_id,
+		        latest_revision, sync_status, last_sync_at, created_at, updated_at
+		 FROM projects WHERE id = $1 AND organization_id = ANY($2)`,
+		id, scope.OrgIDs,
+	).Scan(&p.ID, &p.Name, &p.OrganizationID, &p.SCMURL, &p.SCMBranch,
+		&p.SCMCredentialID, &p.LatestRevision, &p.SyncStatus, &p.LastSyncAt,
+		&p.CreatedAt, &p.UpdatedAt)
+	if err != nil {
+		return nil, err
+	}
+	return p, nil
+}
 
 func (r *ProjectRepo) Update(ctx context.Context, id uuid.UUID, input domain.ProjectCreate) (*domain.Project, error) {
 	_, err := r.pool.Exec(ctx,
@@ -768,9 +988,44 @@ func (r *ProjectRepo) Update(ctx context.Context, id uuid.UUID, input domain.Pro
 	return r.GetByID(ctx, id)
 }
 
+func (r *ProjectRepo) UpdateScoped(ctx context.Context, id uuid.UUID, scope domain.Scope, input domain.ProjectCreate) (*domain.Project, error) {
+	if scope.IsPlatformAdmin {
+		return r.Update(ctx, id, input)
+	}
+	tag, err := r.pool.Exec(ctx,
+		`UPDATE projects SET scm_url = $3, scm_branch = $4, scm_credential_id = $5, updated_at = now()
+		 WHERE id = $1 AND organization_id = ANY($2)`,
+		id, scope.OrgIDs, input.SCMURL, input.SCMBranch, input.SCMCredentialID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("update project: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return nil, pgx.ErrNoRows
+	}
+	return r.GetByIDScoped(ctx, id, scope)
+}
+
 func (r *ProjectRepo) Delete(ctx context.Context, id uuid.UUID) error {
 	_, err := r.pool.Exec(ctx, `DELETE FROM projects WHERE id = $1`, id)
 	return err
+}
+
+func (r *ProjectRepo) DeleteScoped(ctx context.Context, id uuid.UUID, scope domain.Scope) error {
+	if scope.IsPlatformAdmin {
+		return r.Delete(ctx, id)
+	}
+	tag, err := r.pool.Exec(ctx,
+		`DELETE FROM projects WHERE id = $1 AND organization_id = ANY($2)`,
+		id, scope.OrgIDs,
+	)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return pgx.ErrNoRows
+	}
+	return nil
 }
 
 func (r *ProjectRepo) ListByOrg(ctx context.Context, orgID uuid.UUID) ([]domain.Project, error) {
@@ -795,6 +1050,24 @@ func (r *ProjectRepo) ListByOrg(ctx context.Context, orgID uuid.UUID) ([]domain.
 		projects = append(projects, p)
 	}
 	return projects, nil
+}
+
+// UpdateSyncStatus updates the sync status and revision of a project.
+func (r *ProjectRepo) UpdateSyncStatus(ctx context.Context, id uuid.UUID, status, revision, artifactPath, errMsg string) error {
+	var latestRevision *string
+	if revision != "" {
+		latestRevision = &revision
+	}
+	_, err := r.pool.Exec(ctx,
+		`UPDATE projects SET
+		        sync_status = $2,
+		        latest_revision = COALESCE($3, latest_revision),
+		        last_sync_at = now(),
+		        updated_at = now()
+		 WHERE id = $1`,
+		id, status, latestRevision,
+	)
+	return err
 }
 
 // ─── Repositories ─────────────────────────────────────────────────────────────

@@ -16,7 +16,22 @@ func (d *Deps) handleListOrganizations(w http.ResponseWriter, r *http.Request) {
 	limit := parseLimit(r)
 	cursor := r.URL.Query().Get("cursor")
 
-	orgs, nextCursor, hasMore, err := d.Repos.Organizations.List(r.Context(), limit, cursor)
+	scope, ok := d.requireScope(w, r)
+	if !ok {
+		return
+	}
+
+	// Platform admin sees all; others see only their orgs.
+	var orgs []domain.Organization
+	var nextCursor string
+	var hasMore bool
+	var err error
+
+	if scope.IsPlatformAdmin {
+		orgs, nextCursor, hasMore, err = d.Repos.Organizations.List(r.Context(), limit, cursor)
+	} else {
+		orgs, nextCursor, hasMore, err = d.Repos.Organizations.ListByIDs(r.Context(), scope.OrgIDs, limit, cursor)
+	}
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to list organizations")
 		return
@@ -138,7 +153,12 @@ func (d *Deps) handleGetProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	project, err := d.Repos.Projects.GetByID(r.Context(), id)
+	scope, ok := d.requireScope(w, r)
+	if !ok {
+		return
+	}
+
+	project, err := d.Repos.Projects.GetByIDScoped(r.Context(), id, scope)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "NOT_FOUND", "Project not found")
 		return
@@ -149,7 +169,44 @@ func (d *Deps) handleGetProject(w http.ResponseWriter, r *http.Request) {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-// requestOrgID returns the caller's organization from the auth context.
+// requestScope builds the caller's authorization scope from the auth context.
+func (d *Deps) requestScope(r *http.Request) (domain.Scope, bool) {
+	id, ok := auth.FromContext(r.Context())
+	if !ok {
+		return domain.Scope{}, false
+	}
+
+	// Load effective roles to determine org membership and platform-admin status.
+	effectiveRoles, err := d.Repos.RoleAssignments.EffectiveRoles(r.Context(), id.UserID)
+	if err != nil {
+		return domain.Scope{}, false
+	}
+
+	scope := domain.Scope{UserID: id.UserID}
+	orgSet := map[uuid.UUID]bool{}
+	for _, er := range effectiveRoles {
+		if er.Role == domain.RolePlatformAdmin {
+			scope.IsPlatformAdmin = true
+		}
+		if !orgSet[er.OrgID] {
+			orgSet[er.OrgID] = true
+			scope.OrgIDs = append(scope.OrgIDs, er.OrgID)
+		}
+	}
+	return scope, true
+}
+
+// requireScope writes a 401 and returns a zero scope when no auth is present.
+func (d *Deps) requireScope(w http.ResponseWriter, r *http.Request) (domain.Scope, bool) {
+	scope, ok := d.requestScope(r)
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", "Not authenticated")
+		return domain.Scope{}, false
+	}
+	return scope, true
+}
+
+// requestOrgID returns the caller's primary organization from the auth context.
 func requestOrgID(r *http.Request) (uuid.UUID, bool) {
 	id, ok := auth.FromContext(r.Context())
 	if !ok || id.OrganizationID == uuid.Nil {

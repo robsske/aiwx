@@ -524,3 +524,45 @@ body {
 .link:hover {
   text-decoration: underline;
 }
+
+/* Job Logs */
+.job-logs {
+  background: #1e1e1e;
+  color: #d4d4d4;
+  padding: 1rem;
+  border-radius: 6px;
+  font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
+  font-size: 0.8125rem;
+  line-height: 1.6;
+  max-height: 500px;
+  overflow-y: auto;
+}
+
+.log-line {
+  display: flex;
+  gap: 0.5rem;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.log-source {
+  color: #888;
+  flex-shrink: 0;
+  width: 70px;
+}
+
+.log-stdout {
+  color: #d4d4d4;
+}
+
+.log-stderr {
+  color: #f48771;
+}
+
+.log-system {
+  color: #6a9955;
+}
+
+.log-content {
+  flex: 1;
+}

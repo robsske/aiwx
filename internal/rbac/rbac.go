@@ -47,28 +47,66 @@ type Resource struct {
 	TeamID         *uuid.UUID
 }
 
+// RoleLookup fetches effective roles for a user.
+type RoleLookup interface {
+	EffectiveRoles(ctx context.Context, userID uuid.UUID) ([]domain.EffectiveRole, error)
+}
+
 // Checker evaluates permissions.
 type Checker struct {
-	// repos will be injected when database is available
+	roles RoleLookup
 }
 
 // New creates a new permission checker.
-func New() *Checker {
-	return &Checker{}
+func New(roles RoleLookup) *Checker {
+	return &Checker{roles: roles}
 }
 
 // Check evaluates whether a user can perform an action on a resource.
 func (c *Checker) Check(ctx context.Context, userID uuid.UUID, action Action, resource Resource) (bool, error) {
-	// TODO: Implement full RBAC evaluation:
-	// 1. Check if user has platform-admin role (bypass all checks)
-	// 2. Get user's organization IDs through team membership
-	// 3. Check if resource belongs to one of user's organizations
-	// 4. Get user's effective roles for this resource type
-	// 5. Check if any role grants the requested action
-	// 6. Check scope (team-scoped roles only apply to team-owned resources)
+	roles, err := c.roles.EffectiveRoles(ctx, userID)
+	if err != nil {
+		return false, fmt.Errorf("load effective roles: %w", err)
+	}
 
-	// Placeholder: deny all until implemented
-	return false, fmt.Errorf("rbac evaluation not yet implemented")
+	// Platform-admin short-circuit: allowed everywhere.
+	for _, er := range roles {
+		if er.Role == domain.RolePlatformAdmin {
+			return true, nil
+		}
+	}
+
+	// Build org set for this user.
+	orgSet := map[uuid.UUID]bool{}
+	for _, er := range roles {
+		orgSet[er.OrgID] = true
+	}
+
+	// Resource must belong to one of the user's orgs.
+	if !orgSet[resource.OrganizationID] {
+		return false, nil
+	}
+
+	// Check each role that applies to this resource.
+	for _, er := range roles {
+		// Team-scoped roles only apply when the resource team matches
+		// or the resource is org-level (TeamID is nil) and the role is org-level.
+		if er.TeamID != nil {
+			if resource.TeamID == nil {
+				// Team role does not apply to org-level resources.
+				continue
+			}
+			if *er.TeamID != *resource.TeamID {
+				continue
+			}
+		}
+
+		if RoleAllows(er.Role, resource.Type, action) {
+			return true, nil
+		}
+	}
+
+	return false, nil
 }
 
 // PermissionMatrix defines which roles can perform which actions on which resources.

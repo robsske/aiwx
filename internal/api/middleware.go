@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/rverhe/aiwx/internal/auth"
+	"github.com/rverhe/aiwx/internal/rbac"
 )
 
 // ─── Context Keys ─────────────────────────────────────────────────────────────
@@ -118,4 +120,47 @@ func writeError(w http.ResponseWriter, status int, code, message string) {
 		"error_code": code,
 		"message":    message,
 	})
+}
+
+// ─── RBAC Middleware ──────────────────────────────────────────────────────────
+
+// PermissionChecker is the interface used by Require middleware.
+type PermissionChecker interface {
+	Check(ctx context.Context, userID uuid.UUID, action rbac.Action, resource rbac.Resource) (bool, error)
+}
+
+// Require returns middleware that checks the caller has the given action on the resource type.
+// OrganizationID is taken from the auth context (primary org); TeamID is nil (org-level check).
+func Require(checker PermissionChecker, action rbac.Action, resourceType rbac.ResourceType) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			identity, ok := auth.FromContext(r.Context())
+			if !ok {
+				writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", "Not authenticated")
+				return
+			}
+
+			resource := rbac.Resource{
+				Type:           resourceType,
+				OrganizationID: identity.OrganizationID,
+			}
+
+			allowed, err := checker.Check(r.Context(), identity.UserID, action, resource)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Permission check failed")
+				return
+			}
+			if !allowed {
+				writeError(w, http.StatusForbidden, "FORBIDDEN", "Insufficient permissions")
+				return
+			}
+
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+// wrapHandler wraps a handler with middleware (convenience for route registration).
+func wrapHandler(h http.HandlerFunc, middleware ...func(http.Handler) http.Handler) http.Handler {
+	return chain(h, middleware...)
 }

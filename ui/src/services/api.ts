@@ -33,7 +33,9 @@ class ApiClient {
         const isLoginRequest = error.config?.url?.includes('/auth/token')
         if (error.response?.status === 401 && !isLoginRequest) {
           localStorage.removeItem('aiwx_token')
-          window.location.href = '/login'
+          // Use pushState instead of full reload to preserve SPA state
+          window.history.pushState({}, '', '/login')
+          window.dispatchEvent(new PopStateEvent('popstate'))
         }
         return Promise.reject(error)
       },
@@ -118,6 +120,11 @@ class ApiClient {
 
   async getJobEvents(id: string): Promise<PaginatedResponse<JobEvent>> {
     const response = await this.client.get(`/jobs/${id}/events`)
+    return response.data
+  }
+
+  async getJobLogs(id: string): Promise<PaginatedResponse<{ sequence: number; content: string; source: string; created_at: string }>> {
+    const response = await this.client.get(`/jobs/${id}/logs`)
     return response.data
   }
 

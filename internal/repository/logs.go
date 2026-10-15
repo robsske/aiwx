@@ -85,6 +85,12 @@ func (r *JobLogRepo) ListByJob(ctx context.Context, jobID uuid.UUID, limit int) 
 	return r.ListSince(ctx, jobID, 0, limit)
 }
 
+// Append writes a log line, satisfying the service.JobLogWriter interface.
+func (r *JobLogRepo) Append(ctx context.Context, jobID uuid.UUID, stream string, line string) error {
+	_, err := r.Create(ctx, jobID, line, stream)
+	return err
+}
+
 // ─── Job Events (extended) ────────────────────────────────────────────────────
 
 func (r *JobEventRepo) ListByJobSince(ctx context.Context, jobID uuid.UUID, sinceID int64, limit int) ([]domain.JobEvent, error) {

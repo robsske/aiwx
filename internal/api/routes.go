@@ -2,12 +2,15 @@
 package api
 
 import (
+	"context"
 	"log/slog"
 	"net/http"
 
+	"github.com/google/uuid"
 	"github.com/rverhe/aiwx/internal/auth"
 	"github.com/rverhe/aiwx/internal/metrics"
 	"github.com/rverhe/aiwx/internal/outbox"
+	"github.com/rverhe/aiwx/internal/rbac"
 	"github.com/rverhe/aiwx/internal/repository"
 )
 
@@ -19,7 +22,14 @@ type Deps struct {
 	Extractor   *auth.Extractor
 	Issuer      *auth.TokenIssuer
 	Outbox      *outbox.Store
+	Checker     *rbac.Checker
+	SyncWorker  SyncRunner
 	Config      any
+}
+
+// SyncRunner abstracts project sync execution.
+type SyncRunner interface {
+	Sync(ctx context.Context, projectID uuid.UUID) error
 }
 
 // NewRouter creates the HTTP router with all routes and middleware.
@@ -38,9 +48,10 @@ func NewRouter(deps Deps) http.Handler {
 	// Auth
 	protectedMux.HandleFunc("GET /api/v1/auth/me", deps.handleAuthMe)
 
-	// Organizations
+	// Organizations — create is platform-admin only
 	protectedMux.HandleFunc("GET /api/v1/organizations", deps.handleListOrganizations)
-	protectedMux.HandleFunc("POST /api/v1/organizations", deps.handleCreateOrganization)
+	protectedMux.Handle("POST /api/v1/organizations",
+		wrapHandler(deps.handleCreateOrganization, Require(deps.Checker, rbac.ActionManage, rbac.ResourceOrganization)))
 	protectedMux.HandleFunc("GET /api/v1/organizations/{id}", deps.handleGetOrganization)
 
 	// Teams
@@ -51,13 +62,16 @@ func NewRouter(deps Deps) http.Handler {
 	protectedMux.HandleFunc("POST /api/v1/organizations/{orgId}/teams/{teamId}/members", deps.handleAddTeamMember)
 	protectedMux.HandleFunc("DELETE /api/v1/organizations/{orgId}/teams/{teamId}/members/{userId}", deps.handleRemoveTeamMember)
 
-	// Users
-	protectedMux.HandleFunc("POST /api/v1/users", deps.handleCreateUser)
+	// Users — create is platform-admin only
+	protectedMux.Handle("POST /api/v1/users",
+		wrapHandler(deps.handleCreateUser, Require(deps.Checker, rbac.ActionManage, rbac.ResourceUser)))
 	protectedMux.HandleFunc("GET /api/v1/users/{id}", deps.handleGetUser)
 
-	// Role Assignments
-	protectedMux.HandleFunc("POST /api/v1/organizations/{orgId}/role-assignments", deps.handleCreateRoleAssignment)
-	protectedMux.HandleFunc("DELETE /api/v1/organizations/{orgId}/role-assignments/{id}", deps.handleDeleteRoleAssignment)
+	// Role Assignments — manage is org-admin or platform-admin
+	protectedMux.Handle("POST /api/v1/organizations/{orgId}/role-assignments",
+		wrapHandler(deps.handleCreateRoleAssignment, Require(deps.Checker, rbac.ActionManage, rbac.ResourceTeam)))
+	protectedMux.Handle("DELETE /api/v1/organizations/{orgId}/role-assignments/{id}",
+		wrapHandler(deps.handleDeleteRoleAssignment, Require(deps.Checker, rbac.ActionManage, rbac.ResourceTeam)))
 
 	// Projects
 	protectedMux.HandleFunc("GET /api/v1/projects", deps.handleListProjects)
@@ -100,6 +114,7 @@ func NewRouter(deps Deps) http.Handler {
 	protectedMux.HandleFunc("GET /api/v1/jobs", deps.handleListJobs)
 	protectedMux.HandleFunc("GET /api/v1/jobs/{id}", deps.handleGetJob)
 	protectedMux.HandleFunc("GET /api/v1/jobs/{id}/events", deps.handleGetJobEvents)
+	protectedMux.HandleFunc("GET /api/v1/jobs/{id}/logs", deps.handleGetJobLogs)
 	protectedMux.HandleFunc("POST /api/v1/jobs/{id}/cancel", deps.handleCancelJob)
 
 	// Streaming (SSE)

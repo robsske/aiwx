@@ -7,6 +7,7 @@ export function useProjects() {
   return useQuery({
     queryKey: ['projects'],
     queryFn: () => api.listProjects(),
+    refetchInterval: 3000,
   })
 }
 
@@ -15,13 +16,14 @@ export function useProject(id: string) {
     queryKey: ['projects', id],
     queryFn: () => api.getProject(id),
     enabled: !!id,
+    refetchInterval: 3000,
   })
 }
 
 export function useCreateProject() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: api.createProject,
+    mutationFn: (data: Parameters<typeof api.createProject>[0]) => api.createProject(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['projects'] })
     },
@@ -31,7 +33,7 @@ export function useCreateProject() {
 export function useSyncProject() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: api.syncProject,
+    mutationFn: (id: string) => api.syncProject(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['projects'] })
     },
@@ -44,6 +46,7 @@ export function useJobs() {
   return useQuery({
     queryKey: ['jobs'],
     queryFn: () => api.listJobs(),
+    refetchInterval: 3000,
   })
 }
 
@@ -52,7 +55,7 @@ export function useJob(id: string) {
     queryKey: ['jobs', id],
     queryFn: () => api.getJob(id),
     enabled: !!id,
-    refetchInterval: 2000, // Poll every 2 seconds for live updates
+    refetchInterval: 2000,
   })
 }
 
@@ -65,10 +68,19 @@ export function useJobEvents(id: string) {
   })
 }
 
+export function useJobLogs(id: string) {
+  return useQuery({
+    queryKey: ['jobs', id, 'logs'],
+    queryFn: () => api.getJobLogs(id),
+    enabled: !!id,
+    refetchInterval: 3000,
+  })
+}
+
 export function useCancelJob() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: api.cancelJob,
+    mutationFn: (id: string) => api.cancelJob(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['jobs'] })
     },
@@ -95,7 +107,7 @@ export function useCredentials() {
 export function useCreateCredential() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: api.createCredential,
+    mutationFn: (data: Parameters<typeof api.createCredential>[0]) => api.createCredential(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['credentials'] })
     },
@@ -105,7 +117,7 @@ export function useCreateCredential() {
 export function useDeleteCredential() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: api.deleteCredential,
+    mutationFn: (id: string) => api.deleteCredential(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['credentials'] })
     },
@@ -124,7 +136,7 @@ export function useInventories() {
 export function useCreateInventory() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: api.createInventory,
+    mutationFn: (data: Parameters<typeof api.createInventory>[0]) => api.createInventory(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['inventories'] })
     },
@@ -137,6 +149,16 @@ export function useJobTemplates() {
   return useQuery({
     queryKey: ['job-templates'],
     queryFn: () => api.listJobTemplates(),
+  })
+}
+
+export function useCreateJobTemplate() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (data: Parameters<typeof api.createJobTemplate>[0]) => api.createJobTemplate(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['job-templates'] })
+    },
   })
 }
 

@@ -1,8 +1,9 @@
 import { Link } from 'react-router-dom'
 import { useJobs } from '../hooks/useApi'
+import { ErrorState } from '../components/ErrorState'
 
 export default function Jobs() {
-  const { data: jobs, isLoading } = useJobs()
+  const { data: jobs, isLoading, isError, error, refetch } = useJobs()
 
   return (
     <div className="page">
@@ -10,6 +11,15 @@ export default function Jobs() {
 
       {isLoading ? (
         <div className="loading">Loading...</div>
+      ) : isError ? (
+        <ErrorState
+          message={error instanceof Error ? error.message : 'Failed to load jobs'}
+          onRetry={() => refetch()}
+        />
+      ) : !jobs?.results?.length ? (
+        <div className="card">
+          <div className="empty-state">No jobs yet. Launch a job from a Job Template.</div>
+        </div>
       ) : (
         <div className="card">
           <table className="table">
@@ -24,7 +34,7 @@ export default function Jobs() {
               </tr>
             </thead>
             <tbody>
-              {jobs?.results?.map((job) => (
+              {jobs.results.map((job) => (
                 <tr key={job.id}>
                   <td>
                     <Link to={`/jobs/${job.id}`} className="link mono">

@@ -4,25 +4,18 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"os"
 
 	"github.com/rverhe/aiwx/internal/domain"
 )
 
 // SeedDevAdmin creates a default organization and admin user if none exist.
-// Credentials (dev only): admin@aiwx.local / admin
-// Override password with SEED_ADMIN_PASSWORD.
-func SeedDevAdmin(ctx context.Context, repos *Repositories, logger *slog.Logger) error {
+// The password must be provided by the caller (from SEED_ADMIN_PASSWORD).
+func SeedDevAdmin(ctx context.Context, repos *Repositories, logger *slog.Logger, password string) error {
 	const defaultEmail = "admin@aiwx.local"
 
 	_, err := repos.Users.GetByEmail(ctx, defaultEmail)
 	if err == nil {
 		return nil // already seeded
-	}
-
-	password := os.Getenv("SEED_ADMIN_PASSWORD")
-	if password == "" {
-		password = "admin"
 	}
 
 	org, err := repos.Organizations.Create(ctx, domain.OrganizationCreate{
@@ -50,10 +43,9 @@ func SeedDevAdmin(ctx context.Context, repos *Repositories, logger *slog.Logger)
 		return fmt.Errorf("seed role assignment: %w", err)
 	}
 
-	logger.Info("seeded dev admin credentials",
+	logger.Info("seeded dev admin",
 		"email", defaultEmail,
 		"organization", org.Name,
-		"password", "from SEED_ADMIN_PASSWORD or 'admin'",
 	)
 	return nil
 }

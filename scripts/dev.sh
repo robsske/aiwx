@@ -28,6 +28,8 @@ echo -e "${YELLOW}Starting backend on :8080...${NC}"
 DATABASE_URL="postgres://aiwx:aiwx@localhost:5432/aiwx?sslmode=disable" \
 JWT_SECRET="dev-secret-change-in-production" \
 PORT=8080 \
+AIWX_SEED_ADMIN=1 \
+SEED_ADMIN_PASSWORD="${SEED_ADMIN_PASSWORD:-admin}" \
 ./bin/aiwx &
 
 BACKEND_PID=$!

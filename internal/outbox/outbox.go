@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -37,8 +38,7 @@ func NewStore(pool *pgxpool.Pool) *Store {
 	return &Store{pool: pool}
 }
 
-// Enqueue writes an event to the outbox within the current transaction.
-// This MUST be called in the same transaction as the state change.
+// Enqueue writes an event to the outbox outside a transaction.
 func (s *Store) Enqueue(ctx context.Context, eventType, aggregateType string, aggregateID uuid.UUID, payload map[string]any, idempotencyKey string) error {
 	payloadJSON, err := json.Marshal(payload)
 	if err != nil {
@@ -54,6 +54,30 @@ func (s *Store) Enqueue(ctx context.Context, eventType, aggregateType string, ag
 		return fmt.Errorf("insert outbox event: %w", err)
 	}
 	return nil
+}
+
+// EnqueueTx writes an event to the outbox within the given transaction.
+// This MUST be called in the same transaction as the state change.
+func (s *Store) EnqueueTx(tx pgx.Tx, ctx context.Context, eventType, aggregateType string, aggregateID uuid.UUID, payload map[string]any, idempotencyKey string) error {
+	payloadJSON, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("marshal payload: %w", err)
+	}
+
+	_, err = tx.Exec(ctx,
+		`INSERT INTO outbox (event_type, aggregate_type, aggregate_id, payload, idempotency_key)
+		 VALUES ($1, $2, $3, $4, $5)`,
+		eventType, aggregateType, aggregateID, payloadJSON, idempotencyKey,
+	)
+	if err != nil {
+		return fmt.Errorf("insert outbox event: %w", err)
+	}
+	return nil
+}
+
+// Insert satisfies the repository.OutboxInserter interface for transactional writes.
+func (s *Store) Insert(ctx context.Context, tx pgx.Tx, eventType, aggregateType string, aggregateID uuid.UUID, payload map[string]any, idempotencyKey string) error {
+	return s.EnqueueTx(tx, ctx, eventType, aggregateType, aggregateID, payload, idempotencyKey)
 }
 
 // FetchUnpublished retrieves unpublished events up to the limit.

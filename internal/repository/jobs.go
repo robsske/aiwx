@@ -6,8 +6,14 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/rverhe/aiwx/internal/domain"
 )
+
+// OutboxInserter abstracts the outbox write for transactional job creation.
+type OutboxInserter interface {
+	Insert(ctx context.Context, tx pgx.Tx, eventType, aggregateType string, aggregateID uuid.UUID, payload map[string]any, idempotencyKey string) error
+}
 
 // ─── Job Templates ────────────────────────────────────────────────────────────
 
@@ -100,6 +106,40 @@ func (r *JobTemplateRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.Jo
 	return jt, nil
 }
 
+func (r *JobTemplateRepo) GetByIDScoped(ctx context.Context, id uuid.UUID, scope domain.Scope) (*domain.JobTemplate, error) {
+	if scope.IsPlatformAdmin {
+		return r.GetByID(ctx, id)
+	}
+	jt := &domain.JobTemplate{}
+	err := r.pool.QueryRow(ctx,
+		`SELECT id, organization_id, name, project_id, inventory_id, execution_environment_id,
+		        playbook, created_at, updated_at
+		 FROM job_templates WHERE id = $1 AND organization_id = ANY($2)`, id, scope.OrgIDs,
+	).Scan(&jt.ID, &jt.OrganizationID, &jt.Name, &jt.ProjectID, &jt.InventoryID,
+		&jt.ExecutionEnvironmentID, &jt.Playbook, &jt.CreatedAt, &jt.UpdatedAt)
+	if err != nil {
+		return nil, err
+	}
+
+	rows, err := r.pool.Query(ctx,
+		`SELECT credential_id FROM job_template_credentials WHERE job_template_id = $1`, id,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var credID uuid.UUID
+		if err := rows.Scan(&credID); err != nil {
+			return nil, err
+		}
+		jt.CredentialIDs = append(jt.CredentialIDs, credID)
+	}
+
+	return jt, nil
+}
+
 func (r *JobTemplateRepo) ListByOrg(ctx context.Context, orgID uuid.UUID) ([]domain.JobTemplate, error) {
 	rows, err := r.pool.Query(ctx,
 		`SELECT id, organization_id, name, project_id, inventory_id, execution_environment_id,
@@ -128,6 +168,23 @@ func (r *JobTemplateRepo) Delete(ctx context.Context, id uuid.UUID) error {
 	return err
 }
 
+func (r *JobTemplateRepo) DeleteScoped(ctx context.Context, id uuid.UUID, scope domain.Scope) error {
+	if scope.IsPlatformAdmin {
+		return r.Delete(ctx, id)
+	}
+	tag, err := r.pool.Exec(ctx,
+		`DELETE FROM job_templates WHERE id = $1 AND organization_id = ANY($2)`,
+		id, scope.OrgIDs,
+	)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return pgx.ErrNoRows
+	}
+	return nil
+}
+
 // ─── Jobs ────────────────────────────────────────────────────────────────────
 
 type JobRepo struct {
@@ -148,14 +205,86 @@ func (r *JobRepo) Create(ctx context.Context, jobTemplateID *uuid.UUID, orgID uu
 		UpdatedAt:      time.Now(),
 	}
 
+	// Ensure extra_vars is never NULL (DB has NOT NULL constraint)
+	extraVars := launch.ExtraVars
+	if extraVars == nil {
+		extraVars = map[string]any{}
+	}
+
 	_, err := r.pool.Exec(ctx,
 		`INSERT INTO jobs (id, organization_id, job_template_id, status, extra_vars, created_at, updated_at)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
 		job.ID, job.OrganizationID, job.JobTemplateID, job.Status,
-		launch.ExtraVars, job.CreatedAt, job.UpdatedAt,
+		extraVars, job.CreatedAt, job.UpdatedAt,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("insert job: %w", err)
+	}
+
+	return job, nil
+}
+
+// CreateAndEnqueue atomically creates a job, enqueues an outbox event,
+// sets status to pending, and writes the first job_events row.
+func (r *JobRepo) CreateAndEnqueue(ctx context.Context, jobTemplateID *uuid.UUID, orgID uuid.UUID, launch domain.JobLaunch, outbox OutboxInserter) (*domain.Job, error) {
+	job := &domain.Job{
+		ID:             uuid.New(),
+		JobTemplateID:  jobTemplateID,
+		OrganizationID: orgID,
+		Status:         domain.JobStatusPending,
+		CreatedAt:      time.Now(),
+		UpdatedAt:      time.Now(),
+	}
+
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	// Ensure extra_vars is never NULL (DB has NOT NULL constraint)
+	extraVars := launch.ExtraVars
+	if extraVars == nil {
+		extraVars = map[string]any{}
+	}
+
+	// Insert job with pending status
+	_, err = tx.Exec(ctx,
+		`INSERT INTO jobs (id, organization_id, job_template_id, status, extra_vars, created_at, updated_at)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+		job.ID, job.OrganizationID, job.JobTemplateID, job.Status,
+		extraVars, job.CreatedAt, job.UpdatedAt,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("insert job: %w", err)
+	}
+
+	// Insert outbox event in same tx
+	if outbox != nil {
+		if err := outbox.Insert(ctx, tx, "job.created", "job", job.ID,
+			map[string]any{
+				"job_id":          job.ID.String(),
+				"job_template_id": jobTemplateID.String(),
+				"organization_id": orgID.String(),
+			},
+			"job-launch-"+job.ID.String(),
+		); err != nil {
+			return nil, fmt.Errorf("insert outbox event: %w", err)
+		}
+	}
+
+	// Insert first job event
+	_, err = tx.Exec(ctx,
+		`INSERT INTO job_events (job_id, event_type, event_data, created_at)
+		 VALUES ($1, $2, $3, $4)`,
+		job.ID, "job.created", map[string]any{"template_id": jobTemplateID.String()}, job.CreatedAt,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("insert job event: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit tx: %w", err)
 	}
 
 	return job, nil
@@ -167,6 +296,25 @@ func (r *JobRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.Job, error
 		`SELECT id, organization_id, job_template_id, status, project_revision, artifact_ref,
 		        kubernetes_job_name, exit_code, started_at, finished_at, created_at, updated_at
 		 FROM jobs WHERE id = $1`, id,
+	).Scan(&job.ID, &job.OrganizationID, &job.JobTemplateID, &job.Status,
+		&job.ProjectRevision, &job.ArtifactRef, &job.KubernetesJobName,
+		&job.ExitCode, &job.StartedAt, &job.FinishedAt,
+		&job.CreatedAt, &job.UpdatedAt)
+	if err != nil {
+		return nil, err
+	}
+	return job, nil
+}
+
+func (r *JobRepo) GetByIDScoped(ctx context.Context, id uuid.UUID, scope domain.Scope) (*domain.Job, error) {
+	if scope.IsPlatformAdmin {
+		return r.GetByID(ctx, id)
+	}
+	job := &domain.Job{}
+	err := r.pool.QueryRow(ctx,
+		`SELECT id, organization_id, job_template_id, status, project_revision, artifact_ref,
+		        kubernetes_job_name, exit_code, started_at, finished_at, created_at, updated_at
+		 FROM jobs WHERE id = $1 AND organization_id = ANY($2)`, id, scope.OrgIDs,
 	).Scan(&job.ID, &job.OrganizationID, &job.JobTemplateID, &job.Status,
 		&job.ProjectRevision, &job.ArtifactRef, &job.KubernetesJobName,
 		&job.ExitCode, &job.StartedAt, &job.FinishedAt,
@@ -248,6 +396,19 @@ func (r *JobRepo) ListNonTerminal(ctx context.Context) ([]domain.Job, error) {
 		jobs = append(jobs, job)
 	}
 	return jobs, nil
+}
+
+// FailStaleRunning marks running jobs older than maxAge as failed.
+func (r *JobRepo) FailStaleRunning(ctx context.Context, maxAge time.Duration) (int64, error) {
+	tag, err := r.pool.Exec(ctx,
+		`UPDATE jobs SET status = 'failed', finished_at = now(), updated_at = now()
+		 WHERE status = 'running' AND started_at < now() - $1::interval`,
+		maxAge,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return tag.RowsAffected(), nil
 }
 
 // ─── Job Events ───────────────────────────────────────────────────────────────

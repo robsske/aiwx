@@ -1,11 +1,25 @@
 import { useProjects, useJobs } from '../hooks/useApi'
+import { ErrorState } from '../components/ErrorState'
 
 export default function Dashboard() {
-  const { data: projects, isLoading: projectsLoading } = useProjects()
-  const { data: jobs, isLoading: jobsLoading } = useJobs()
+  const {
+    data: projects,
+    isLoading: projectsLoading,
+    isError: projectsError,
+    refetch: refetchProjects,
+  } = useProjects()
+  const {
+    data: jobs,
+    isLoading: jobsLoading,
+    isError: jobsError,
+    refetch: refetchJobs,
+  } = useJobs()
 
   const recentJobs = jobs?.results?.slice(0, 5) ?? []
-  const activeJobs = jobs?.results?.filter((j) => !['successful', 'failed', 'error', 'canceled'].includes(j.status)).length ?? 0
+  const activeJobs =
+    jobs?.results?.filter((j) => !['successful', 'failed', 'error', 'canceled'].includes(j.status))
+      .length ?? 0
+  const successfulJobs = jobs?.results?.filter((j) => j.status === 'successful').length ?? 0
 
   return (
     <div className="page">
@@ -25,9 +39,7 @@ export default function Dashboard() {
           <div className="stat-label">Active Jobs</div>
         </div>
         <div className="stat-card">
-          <div className="stat-value">
-            {jobs?.results?.filter((j) => j.status === 'successful').length ?? 0}
-          </div>
+          <div className="stat-value">{successfulJobs}</div>
           <div className="stat-label">Successful</div>
         </div>
       </div>
@@ -37,6 +49,8 @@ export default function Dashboard() {
           <h2 className="card-title">Recent Jobs</h2>
           {jobsLoading ? (
             <div className="loading">Loading...</div>
+          ) : jobsError ? (
+            <ErrorState message="Failed to load jobs" onRetry={() => refetchJobs()} />
           ) : recentJobs.length === 0 ? (
             <div className="empty-state">No jobs yet</div>
           ) : (
@@ -69,6 +83,8 @@ export default function Dashboard() {
           <h2 className="card-title">Recent Projects</h2>
           {projectsLoading ? (
             <div className="loading">Loading...</div>
+          ) : projectsError ? (
+            <ErrorState message="Failed to load projects" onRetry={() => refetchProjects()} />
           ) : projects?.results?.length === 0 ? (
             <div className="empty-state">No projects yet</div>
           ) : (
