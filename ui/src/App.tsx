@@ -8,6 +8,8 @@ import ProjectDetail from './pages/ProjectDetail'
 import Jobs from './pages/Jobs'
 import JobDetail from './pages/JobDetail'
 import JobTemplates from './pages/JobTemplates'
+import Workflows from './pages/Workflows'
+import WorkflowBuilder from './pages/WorkflowBuilder'
 import Credentials from './pages/Credentials'
 import Inventories from './pages/Inventories'
 import Users from './pages/Users'
@@ -39,6 +41,8 @@ export default function App() {
         <Route path="/jobs" element={<Jobs />} />
         <Route path="/jobs/:id" element={<JobDetail />} />
         <Route path="/job-templates" element={<JobTemplates />} />
+        <Route path="/workflows" element={<Workflows />} />
+        <Route path="/workflows/:id" element={<WorkflowBuilder />} />
         <Route path="/credentials" element={<Credentials />} />
         <Route path="/inventories" element={<Inventories />} />
         <Route path="/users" element={<Users />} />

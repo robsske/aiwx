@@ -10,6 +10,7 @@ import {
   Monitor,
   Users,
   LogOut,
+  GitBranch,
 } from 'lucide-react'
 import { useAuth } from '../hooks/useAuth'
 import { Button } from './ui/button'
@@ -20,6 +21,7 @@ const navigation = [
   { name: 'Organizations', href: '/organizations', icon: Building2 },
   { name: 'Projects', href: '/projects', icon: FolderKanban },
   { name: 'Job Templates', href: '/job-templates', icon: ClipboardList },
+  { name: 'Workflows', href: '/workflows', icon: GitBranch },
   { name: 'Jobs', href: '/jobs', icon: PlayCircle },
   { name: 'Credentials', href: '/credentials', icon: KeyRound },
   { name: 'Inventories', href: '/inventories', icon: Monitor },
@@ -43,7 +45,9 @@ export default function Layout({ children }: { children: ReactNode }) {
 
         <nav className="flex-1 space-y-1 overflow-y-auto py-4">
           {navigation.map((item) => {
-            const active = location.pathname === item.href
+            const active =
+              location.pathname === item.href ||
+              (item.href !== '/' && location.pathname.startsWith(item.href + '/'))
             return (
               <Link
                 key={item.name}

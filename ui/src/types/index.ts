@@ -195,3 +195,99 @@ export interface APIError {
   message: string
   details?: Record<string, any>
 }
+
+// ─── Workflows (AWX Workflow Job Templates) ──────────────────────────────────
+
+export interface WorkflowNode {
+  id: string
+  workflow_template_id: string
+  job_template_id: string | null
+  name: string
+  position_x: number
+  position_y: number
+  job_template_name?: string
+}
+
+export interface WorkflowLink {
+  id: string
+  workflow_template_id: string
+  source_node_id: string
+  target_node_id: string
+  condition: 'success' | 'failure' | 'always'
+}
+
+export interface WorkflowTemplate {
+  id: string
+  organization_id: string
+  name: string
+  description: string
+  extra_vars: Record<string, any>
+  nodes: WorkflowNode[]
+  links: WorkflowLink[]
+  created_at: string
+  updated_at: string
+}
+
+export interface WorkflowNodeIn {
+  id?: string
+  job_template_id: string | null
+  name?: string
+  position_x: number
+  position_y: number
+}
+
+export interface WorkflowLinkIn {
+  source_node_id: string
+  target_node_id: string
+  condition: 'success' | 'failure' | 'always'
+}
+
+export interface WorkflowTemplateCreate {
+  organization_id?: string
+  name: string
+  description?: string
+  nodes: WorkflowNodeIn[]
+  links: WorkflowLinkIn[]
+}
+
+export interface WorkflowTemplateUpdate {
+  name?: string
+  description?: string
+  nodes?: WorkflowNodeIn[]
+  links?: WorkflowLinkIn[]
+}
+
+export interface WorkflowJobNode {
+  id: string
+  workflow_job_id: string
+  workflow_node_id: string
+  job_template_id: string | null
+  job_id: string | null
+  name: string
+  status: string
+  error_message: string
+  started_at: string | null
+  finished_at: string | null
+}
+
+export interface WorkflowJobNodeLink {
+  id: string
+  workflow_job_id: string
+  source_node_id: string
+  target_node_id: string
+  condition: 'success' | 'failure' | 'always'
+}
+
+export interface WorkflowJob {
+  id: string
+  workflow_template_id: string
+  workflow_name: string
+  organization_id: string
+  status: string
+  nodes: WorkflowJobNode[]
+  links: WorkflowJobNodeLink[]
+  started_at: string | null
+  finished_at: string | null
+  created_at: string
+  updated_at: string
+}

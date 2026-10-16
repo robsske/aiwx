@@ -119,6 +119,16 @@ func NewRouter(deps Deps) http.Handler {
 	protectedMux.HandleFunc("DELETE /api/v1/job-templates/{id}", deps.handleDeleteJobTemplate)
 	protectedMux.HandleFunc("POST /api/v1/job-templates/{id}/launch", deps.handleLaunchJob)
 
+	// Workflows (AWX-style workflow job templates)
+	protectedMux.HandleFunc("GET /api/v1/workflow-templates", deps.handleListWorkflowTemplates)
+	protectedMux.HandleFunc("POST /api/v1/workflow-templates", deps.handleCreateWorkflowTemplate)
+	protectedMux.HandleFunc("GET /api/v1/workflow-templates/{id}", deps.handleGetWorkflowTemplate)
+	protectedMux.HandleFunc("PUT /api/v1/workflow-templates/{id}", deps.handleUpdateWorkflowTemplate)
+	protectedMux.HandleFunc("DELETE /api/v1/workflow-templates/{id}", deps.handleDeleteWorkflowTemplate)
+	protectedMux.HandleFunc("POST /api/v1/workflow-templates/{id}/launch", deps.handleLaunchWorkflow)
+	protectedMux.HandleFunc("GET /api/v1/workflow-jobs", deps.handleListWorkflowJobs)
+	protectedMux.HandleFunc("GET /api/v1/workflow-jobs/{id}", deps.handleGetWorkflowJob)
+
 	// Jobs
 	protectedMux.HandleFunc("GET /api/v1/jobs", deps.handleListJobs)
 	protectedMux.HandleFunc("GET /api/v1/jobs/{id}", deps.handleGetJob)

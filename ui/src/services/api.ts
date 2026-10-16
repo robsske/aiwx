@@ -2,6 +2,7 @@ import axios, { AxiosInstance, InternalAxiosRequestConfig } from 'axios'
 import type {
   Organization, Project, Job, JobEvent, Credential, CredentialType,
   Inventory, JobTemplate, PaginatedResponse, UserInfo,
+  WorkflowTemplate, WorkflowTemplateCreate, WorkflowTemplateUpdate, WorkflowJob,
 } from '../types'
 
 // ─── API Client ───────────────────────────────────────────────────────────────
@@ -299,6 +300,47 @@ class ApiClient {
 
   async launchJob(templateId: string, data?: Record<string, any>): Promise<Job> {
     const response = await this.client.post(`/job-templates/${templateId}/launch`, data)
+    return response.data
+  }
+
+  // ─── Workflows ──────────────────────────────────────────────────────────────
+
+  async listWorkflowTemplates(): Promise<PaginatedResponse<WorkflowTemplate>> {
+    const response = await this.client.get('/workflow-templates')
+    return response.data
+  }
+
+  async getWorkflowTemplate(id: string): Promise<WorkflowTemplate> {
+    const response = await this.client.get(`/workflow-templates/${id}`)
+    return response.data
+  }
+
+  async createWorkflowTemplate(data: WorkflowTemplateCreate): Promise<WorkflowTemplate> {
+    const response = await this.client.post('/workflow-templates', data)
+    return response.data
+  }
+
+  async updateWorkflowTemplate(id: string, data: WorkflowTemplateUpdate): Promise<WorkflowTemplate> {
+    const response = await this.client.put(`/workflow-templates/${id}`, data)
+    return response.data
+  }
+
+  async deleteWorkflowTemplate(id: string): Promise<void> {
+    await this.client.delete(`/workflow-templates/${id}`)
+  }
+
+  async launchWorkflow(id: string): Promise<WorkflowJob> {
+    const response = await this.client.post(`/workflow-templates/${id}/launch`)
+    return response.data
+  }
+
+  async listWorkflowJobs(): Promise<PaginatedResponse<WorkflowJob>> {
+    const response = await this.client.get('/workflow-jobs')
+    return response.data
+  }
+
+  async getWorkflowJob(id: string): Promise<WorkflowJob> {
+    const response = await this.client.get(`/workflow-jobs/${id}`)
     return response.data
   }
 }

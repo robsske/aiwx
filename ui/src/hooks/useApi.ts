@@ -181,3 +181,71 @@ export function useLaunchJob() {
     },
   })
 }
+
+// ─── Workflows ────────────────────────────────────────────────────────────────
+
+export function useWorkflowTemplates() {
+  return useQuery({
+    queryKey: ['workflow-templates'],
+    queryFn: () => api.listWorkflowTemplates(),
+  })
+}
+
+export function useWorkflowTemplate(id: string) {
+  return useQuery({
+    queryKey: ['workflow-templates', id],
+    queryFn: () => api.getWorkflowTemplate(id),
+    enabled: !!id,
+  })
+}
+
+export function useCreateWorkflowTemplate() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (data: Parameters<typeof api.createWorkflowTemplate>[0]) =>
+      api.createWorkflowTemplate(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['workflow-templates'] })
+    },
+  })
+}
+
+export function useUpdateWorkflowTemplate() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: Parameters<typeof api.updateWorkflowTemplate>[1] }) =>
+      api.updateWorkflowTemplate(id, data),
+    onSuccess: (_d, vars) => {
+      queryClient.invalidateQueries({ queryKey: ['workflow-templates'] })
+      queryClient.invalidateQueries({ queryKey: ['workflow-templates', vars.id] })
+    },
+  })
+}
+
+export function useDeleteWorkflowTemplate() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => api.deleteWorkflowTemplate(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['workflow-templates'] })
+    },
+  })
+}
+
+export function useLaunchWorkflow() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => api.launchWorkflow(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['workflow-jobs'] })
+    },
+  })
+}
+
+export function useWorkflowJobs() {
+  return useQuery({
+    queryKey: ['workflow-jobs'],
+    queryFn: () => api.listWorkflowJobs(),
+    refetchInterval: 3000,
+  })
+}

@@ -1266,6 +1266,7 @@ type Repositories struct {
 	Jobs                  *JobRepo
 	JobEvents             *JobEventRepo
 	JobLogs               *JobLogRepo
+	Workflows             *WorkflowRepo
 }
 
 // New creates all repositories.
@@ -1283,5 +1284,6 @@ func New(pool *Pool) *Repositories {
 		Jobs:                  NewJobRepo(pool),
 		JobEvents:             NewJobEventRepo(pool),
 		JobLogs:               NewJobLogRepo(pool),
+		Workflows:             NewWorkflowRepo(pool),
 	}
 }
