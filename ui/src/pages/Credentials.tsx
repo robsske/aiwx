@@ -2,6 +2,20 @@ import { useState } from 'react'
 import { useCredentials, useCredentialTypes, useOrganizations, useCreateCredential, useDeleteCredential } from '../hooks/useApi'
 import { ErrorState } from '../components/ErrorState'
 import { ConfirmDialog } from '../components/ConfirmDialog'
+import { PageHeader, LoadingState } from '../components/Page'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Textarea } from '@/components/ui/textarea'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 
 function extractErrorMessage(err: unknown): string {
   if (err && typeof err === 'object' && 'response' in err) {
@@ -71,122 +85,136 @@ export default function Credentials() {
   }
 
   return (
-    <div className="page">
-      <div className="page-header">
-        <h1 className="page-title">Credentials</h1>
-        <button className="btn-primary" onClick={() => setShowCreate(true)}>
-          + New Credential
-        </button>
-      </div>
+    <div>
+      <PageHeader
+        title="Credentials"
+        actions={<Button onClick={() => setShowCreate(true)}>+ New Credential</Button>}
+      />
 
       {formError && <ErrorState message={formError} />}
 
       {showCreate && (
-        <div className="card">
-          <h2 className="card-title">Create Credential</h2>
-          <form onSubmit={handleCreate} className="form">
-            <div className="form-group">
-              <label>Name</label>
-              <input type="text" value={name} onChange={(e) => setName(e.target.value)} required />
-            </div>
-            <div className="form-group">
-              <label>Type</label>
-              {typesLoading ? (
-                <div className="loading">Loading types...</div>
-              ) : (
-                <select
-                  value={typeId}
-                  onChange={(e) => setTypeId(e.target.value)}
+        <Card className="mb-6">
+          <CardHeader>
+            <CardTitle>Create Credential</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <form onSubmit={handleCreate} className="flex flex-col gap-4">
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="cred-name">Name</Label>
+                <Input
+                  id="cred-name"
+                  type="text"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
                   required
+                />
+              </div>
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="cred-type">Type</Label>
+                {typesLoading ? (
+                  <LoadingState label="Loading types..." />
+                ) : (
+                  <Select value={typeId || undefined} onValueChange={setTypeId}>
+                    <SelectTrigger id="cred-type">
+                      <SelectValue placeholder="Select type..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {credentialTypes?.map((t) => (
+                        <SelectItem key={t.id} value={t.id}>
+                          {t.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              </div>
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="cred-inputs">Inputs (JSON)</Label>
+                <Textarea
+                  id="cred-inputs"
+                  className="font-mono text-xs"
+                  value={inputs}
+                  onChange={(e) => setInputs(e.target.value)}
+                  placeholder={
+                    selectedType
+                      ? JSON.stringify(
+                          Object.fromEntries(
+                            Object.keys(selectedType.inputs_schema || {}).map((k) => [k, '']),
+                          ),
+                          null,
+                          2,
+                        )
+                      : '{"username": "...", "password": "..."}'
+                  }
+                  rows={8}
+                />
+              </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  type="submit"
+                  disabled={createCredential.isPending || !typeId || typesLoading}
                 >
-                  <option value="">Select type...</option>
-                  {credentialTypes?.map((t) => (
-                    <option key={t.id} value={t.id}>
-                      {t.name}
-                    </option>
-                  ))}
-                </select>
-              )}
-            </div>
-            <div className="form-group">
-              <label>Inputs (JSON)</label>
-              <textarea
-                value={inputs}
-                onChange={(e) => setInputs(e.target.value)}
-                placeholder={
-                  selectedType
-                    ? JSON.stringify(
-                        Object.fromEntries(
-                          Object.keys(selectedType.inputs_schema || {}).map((k) => [k, '']),
-                        ),
-                        null,
-                        2,
-                      )
-                    : '{"username": "...", "password": "..."}'
-                }
-                rows={5}
-              />
-            </div>
-            <div className="form-actions">
-              <button
-                type="submit"
-                className="btn-primary"
-                disabled={createCredential.isPending || !typeId || typesLoading}
-              >
-                {createCredential.isPending ? 'Creating...' : 'Create'}
-              </button>
-              <button type="button" className="btn-secondary" onClick={() => setShowCreate(false)}>
-                Cancel
-              </button>
-            </div>
-          </form>
-        </div>
+                  {createCredential.isPending ? 'Creating...' : 'Create'}
+                </Button>
+                <Button type="button" variant="secondary" onClick={() => setShowCreate(false)}>
+                  Cancel
+                </Button>
+              </div>
+            </form>
+          </CardContent>
+        </Card>
       )}
 
       {isLoading ? (
-        <div className="loading">Loading...</div>
+        <LoadingState />
       ) : isError ? (
         <ErrorState
           message={error instanceof Error ? error.message : 'Failed to load credentials'}
           onRetry={() => refetch()}
         />
       ) : (
-        <div className="card">
-          <table className="table">
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Organization</th>
-                <th>Type</th>
-                <th>Created</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {credentials?.results?.map((cred) => {
-                const typeName =
-                  credentialTypes?.find((t) => t.id === cred.credential_type_id)?.name ??
-                  cred.credential_type_id.slice(0, 8)
-                return (
-                  <tr key={cred.id}>
-                    <td>{cred.name}</td>
-                    <td>{orgs?.results?.find(o => o.id === cred.organization_id)?.name ?? cred.organization_id.slice(0, 8)}</td>
-                    <td>{typeName}</td>
-                    <td>{new Date(cred.created_at).toLocaleDateString()}</td>
-                    <td>
-                      <button
-                        className="btn-sm btn-danger"
-                        onClick={() => setDeleteTarget(cred.id)}
-                      >
-                        Delete
-                      </button>
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
+        <Card>
+          <CardContent className="p-0">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Name</TableHead>
+                  <TableHead>Organization</TableHead>
+                  <TableHead>Type</TableHead>
+                  <TableHead>Created</TableHead>
+                  <TableHead>Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {credentials?.results?.map((cred) => {
+                  const typeName =
+                    credentialTypes?.find((t) => t.id === cred.credential_type_id)?.name ??
+                    cred.credential_type_id.slice(0, 8)
+                  return (
+                    <TableRow key={cred.id}>
+                      <TableCell>{cred.name}</TableCell>
+                      <TableCell>
+                        {orgs?.results?.find(o => o.id === cred.organization_id)?.name ?? cred.organization_id.slice(0, 8)}
+                      </TableCell>
+                      <TableCell>{typeName}</TableCell>
+                      <TableCell>{new Date(cred.created_at).toLocaleDateString()}</TableCell>
+                      <TableCell>
+                        <Button
+                          variant="destructive"
+                          size="sm"
+                          onClick={() => setDeleteTarget(cred.id)}
+                        >
+                          Delete
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  )
+                })}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
       )}
 
       <ConfirmDialog

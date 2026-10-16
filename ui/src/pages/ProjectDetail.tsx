@@ -1,53 +1,61 @@
 import { useParams } from 'react-router-dom'
 import { useProject } from '../hooks/useApi'
+import { PageHeader, StatusBadge, LoadingState, Mono } from '../components/Page'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { ErrorState } from '../components/ErrorState'
+
+function DetailItem({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="space-y-1">
+      <div className="text-xs font-medium text-muted-foreground">{label}</div>
+      <div className="text-sm">{children}</div>
+    </div>
+  )
+}
 
 export default function ProjectDetail() {
   const { id } = useParams<{ id: string }>()
   const { data: project, isLoading } = useProject(id!)
 
   if (isLoading) {
-    return <div className="loading">Loading...</div>
+    return <LoadingState />
   }
 
   if (!project) {
-    return <div className="error">Project not found</div>
+    return <ErrorState message="Project not found" />
   }
 
   return (
-    <div className="page">
-      <h1 className="page-title">{project.name}</h1>
+    <div>
+      <PageHeader title={project.name} />
 
-      <div className="card">
-        <h2 className="card-title">Project Details</h2>
-        <div className="detail-grid">
-          <div className="detail-item">
-            <span className="detail-label">Git URL</span>
-            <span className="mono">{project.scm_url}</span>
+      <Card>
+        <CardHeader>
+          <CardTitle>Project Details</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            <DetailItem label="Git URL">
+              <Mono>{project.scm_url}</Mono>
+            </DetailItem>
+            <DetailItem label="Branch">
+              {project.scm_branch}
+            </DetailItem>
+            <DetailItem label="Sync Status">
+              <StatusBadge status={project.sync_status} />
+            </DetailItem>
+            <DetailItem label="Latest Revision">
+              <Mono>{project.latest_revision?.slice(0, 8) ?? '—'}</Mono>
+            </DetailItem>
+            <DetailItem label="Last Sync">
+              {project.last_sync_at ? new Date(project.last_sync_at).toLocaleString() : '—'}
+            </DetailItem>
+            <DetailItem label="Created">
+              {new Date(project.created_at).toLocaleString()}
+            </DetailItem>
           </div>
-          <div className="detail-item">
-            <span className="detail-label">Branch</span>
-            <span>{project.scm_branch}</span>
-          </div>
-          <div className="detail-item">
-            <span className="detail-label">Sync Status</span>
-            <span className={`status-badge status-${project.sync_status}`}>
-              {project.sync_status}
-            </span>
-          </div>
-          <div className="detail-item">
-            <span className="detail-label">Latest Revision</span>
-            <span className="mono">{project.latest_revision?.slice(0, 8) ?? '—'}</span>
-          </div>
-          <div className="detail-item">
-            <span className="detail-label">Last Sync</span>
-            <span>{project.last_sync_at ? new Date(project.last_sync_at).toLocaleString() : '—'}</span>
-          </div>
-          <div className="detail-item">
-            <span className="detail-label">Created</span>
-            <span>{new Date(project.created_at).toLocaleString()}</span>
-          </div>
-        </div>
-      </div>
+        </CardContent>
+      </Card>
     </div>
   )
 }

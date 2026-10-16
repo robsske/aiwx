@@ -1,6 +1,19 @@
 import { useState, useEffect } from 'react'
 import { api } from '../services/api'
 import { ErrorState } from './ErrorState'
+import { EmptyState, LoadingState } from './Page'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Badge } from '@/components/ui/badge'
+import { Label } from '@/components/ui/label'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import type { Team, User } from '../types'
 
 interface RoleAssignment {
@@ -20,6 +33,8 @@ function extractErrorMessage(err: unknown): string {
   if (err instanceof Error) return err.message
   return 'An unexpected error occurred'
 }
+
+const NONE = '__none__'
 
 export function RoleAssignments({ orgId }: { orgId: string }) {
   const [assignments, setAssignments] = useState<RoleAssignment[]>([])
@@ -87,83 +102,122 @@ export function RoleAssignments({ orgId }: { orgId: string }) {
 
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-        <h3 style={{ margin: 0 }}>Role Assignments</h3>
-        <button className="btn-primary" onClick={() => setShowAssign(true)}>+ Assign Role</button>
+      <div className="mb-4 flex items-center justify-between">
+        <h3 className="text-lg font-semibold">Role Assignments</h3>
+        <Button onClick={() => setShowAssign(true)}>+ Assign Role</Button>
       </div>
 
       {error && <ErrorState message={error} />}
 
       {showAssign && (
-        <div className="card" style={{ marginBottom: '1rem', background: 'var(--bg-secondary)' }}>
-          <h4>Assign Role</h4>
-          <div className="form-group">
-            <label>Role</label>
-            <select value={selectedRole} onChange={e => setSelectedRole(e.target.value)}>
-              <option value="">Select role...</option>
-              {roles.map(r => (
-                <option key={r} value={r}>{r}</option>
-              ))}
-            </select>
-          </div>
-          <div className="form-group">
-            <label>Assign to Team</label>
-            <select value={selectedTeam} onChange={e => { setSelectedTeam(e.target.value); setSelectedUser('') }}>
-              <option value="">— Select team —</option>
-              {teams.map(t => (
-                <option key={t.id} value={t.id}>{t.name}</option>
-              ))}
-            </select>
-          </div>
-          <div className="form-group">
-            <label>Or assign to User</label>
-            <select value={selectedUser} onChange={e => { setSelectedUser(e.target.value); setSelectedTeam('') }}>
-              <option value="">— Select user —</option>
-              {users.map(u => (
-                <option key={u.id} value={u.id}>{u.email}</option>
-              ))}
-            </select>
-          </div>
-          <div className="form-actions">
-            <button className="btn-primary" onClick={handleAssign} disabled={!selectedRole || (!selectedTeam && !selectedUser)}>
-              Assign
-            </button>
-            <button className="btn-secondary" onClick={() => setShowAssign(false)}>Cancel</button>
-          </div>
-        </div>
+        <Card className="mb-4">
+          <CardHeader>
+            <CardTitle className="text-base">Assign Role</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-2">
+              <Label>Role</Label>
+              <Select
+                value={selectedRole || NONE}
+                onValueChange={(value: string) => setSelectedRole(value === NONE ? '' : value)}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select role..." />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={NONE}>Select role...</SelectItem>
+                  {roles.map(r => (
+                    <SelectItem key={r} value={r}>{r}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Assign to Team</Label>
+              <Select
+                value={selectedTeam || NONE}
+                onValueChange={(value: string) => {
+                  setSelectedTeam(value === NONE ? '' : value)
+                  setSelectedUser('')
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="— Select team —" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={NONE}>— Select team —</SelectItem>
+                  {teams.map(t => (
+                    <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Or assign to User</Label>
+              <Select
+                value={selectedUser || NONE}
+                onValueChange={(value: string) => {
+                  setSelectedUser(value === NONE ? '' : value)
+                  setSelectedTeam('')
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="— Select user —" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={NONE}>— Select user —</SelectItem>
+                  {users.map(u => (
+                    <SelectItem key={u.id} value={u.id}>{u.email}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex gap-2">
+              <Button
+                onClick={handleAssign}
+                disabled={!selectedRole || (!selectedTeam && !selectedUser)}
+              >
+                Assign
+              </Button>
+              <Button variant="outline" onClick={() => setShowAssign(false)}>Cancel</Button>
+            </div>
+          </CardContent>
+        </Card>
       )}
 
       {loading ? (
-        <div className="loading">Loading...</div>
+        <LoadingState />
       ) : assignments.length === 0 ? (
-        <div className="empty-state">No role assignments yet</div>
+        <EmptyState message="No role assignments yet" />
       ) : (
-        <table className="table">
-          <thead>
-            <tr>
-              <th>Role</th>
-              <th>Assigned To</th>
-              <th>Type</th>
-              <th>Created</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Role</TableHead>
+              <TableHead>Assigned To</TableHead>
+              <TableHead>Type</TableHead>
+              <TableHead>Created</TableHead>
+              <TableHead>Actions</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
             {assignments.map(a => (
-              <tr key={a.id}>
-                <td><span className="status-badge status-active">{a.role_name}</span></td>
-                <td>{a.team_id ? teamName(a.team_id) : userName(a.user_id)}</td>
-                <td>{a.team_id ? 'Team' : 'User'}</td>
-                <td>{new Date(a.created_at).toLocaleDateString()}</td>
-                <td>
-                  <button className="btn-sm btn-danger" onClick={() => handleRemove(a.id)}>
+              <TableRow key={a.id}>
+                <TableCell><Badge variant="secondary">{a.role_name}</Badge></TableCell>
+                <TableCell>
+                  {a.team_id ? teamName(a.team_id) : userName(a.user_id)}
+                </TableCell>
+                <TableCell>{a.team_id ? 'Team' : 'User'}</TableCell>
+                <TableCell>{new Date(a.created_at).toLocaleDateString()}</TableCell>
+                <TableCell>
+                  <Button size="sm" variant="destructive" onClick={() => handleRemove(a.id)}>
                     Remove
-                  </button>
-                </td>
-              </tr>
+                  </Button>
+                </TableCell>
+              </TableRow>
             ))}
-          </tbody>
-        </table>
+          </TableBody>
+        </Table>
       )}
     </div>
   )

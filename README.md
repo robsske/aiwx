@@ -4,6 +4,19 @@ A multi-tenant automation controller — a modern reimplementation of [AWX](http
 
 > **Status: Early MVP** — core pipeline works, many features still in progress.
 
+## Screenshots
+
+| | |
+|:--:|:--:|
+| ![Login](docs/screenshots/login.png) | ![Dashboard](docs/screenshots/dashboard.png) |
+| *Login* | *Dashboard* |
+| ![Jobs](docs/screenshots/jobs.png) | ![Job detail](docs/screenshots/job-detail.png) |
+| *Jobs* | *Job detail with Ansible output* |
+| ![Projects](docs/screenshots/projects.png) | ![Job templates](docs/screenshots/job-templates.png) |
+| *Projects* | *Job templates* |
+| ![Organizations](docs/screenshots/organizations.png) | ![Credentials](docs/screenshots/credentials.png) |
+| *Organizations & RBAC* | *Credentials* |
+
 ## What Works
 
 ### Core Features
@@ -57,12 +70,13 @@ POST   /jobs/{id}/cancel    # Cancel job
 
 ### UI
 
-React + TypeScript SPA with:
+React + TypeScript SPA ([shadcn/ui](https://ui.shadcn.com/) + Tailwind CSS 4) with:
 - Dashboard with stats
+- Organizations, users, and role assignment management
 - Projects list with sync buttons
 - Job Templates with launch
 - Jobs list with status badges
-- Job Detail with full Ansible output
+- Job Detail with full Ansible output (terminal-style log view)
 - Credentials management
 - Error states and loading indicators
 

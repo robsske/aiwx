@@ -1,32 +1,41 @@
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import { useJob, useJobEvents, useJobLogs, useCancelJob } from '../hooks/useApi'
 import { ErrorState } from '../components/ErrorState'
+import { PageHeader, StatusBadge, EmptyState, LoadingState, Mono } from '../components/Page'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 
 function EventRow({ event }: { event: { id: number; event_type: string; event_data: Record<string, unknown>; created_at: string } }) {
   const data = event.event_data ?? {}
   return (
-    <div className="event-item">
-      <span className="event-time">{new Date(event.created_at).toLocaleTimeString()}</span>
-      <span className={`event-type event-${event.event_type.replace('.', '-')}`}>
-        {event.event_type}
-      </span>
-      <div className="event-details">
-        {Object.entries(data).map(([key, value]) => (
-          <span key={key} className="event-field">
-            <strong>{key}:</strong> {String(value)}
-          </span>
-        ))}
-      </div>
-    </div>
+    <TableRow>
+      <TableCell className="whitespace-nowrap text-muted-foreground">
+        {new Date(event.created_at).toLocaleTimeString()}
+      </TableCell>
+      <TableCell>
+        <Badge variant="outline">{event.event_type}</Badge>
+      </TableCell>
+      <TableCell>
+        <div className="flex flex-wrap gap-x-4 gap-y-1">
+          {Object.entries(data).map(([key, value]) => (
+            <span key={key} className="text-xs">
+              <strong>{key}:</strong> {String(value)}
+            </span>
+          ))}
+        </div>
+      </TableCell>
+    </TableRow>
   )
 }
 
 function LogLine({ log }: { log: { sequence: number; content: string; source: string } }) {
-  const sourceClass = log.source === 'stderr' ? 'log-stderr' : log.source === 'system' ? 'log-system' : 'log-stdout'
+  const sourceClass = log.source === 'stderr' ? 'log-failed' : log.source === 'system' ? 'log-changed' : 'log-ok'
   return (
     <div className={`log-line ${sourceClass}`}>
-      <span className="log-source">[{log.source}]</span>
-      <span className="log-content">{log.content}</span>
+      <span>[{log.source}]</span>{' '}
+      <span>{log.content}</span>
     </div>
   )
 }
@@ -42,7 +51,7 @@ export default function JobDetail() {
   const isTerminal = job && ['successful', 'failed', 'error', 'canceled'].includes(job.status)
 
   if (isLoading) {
-    return <div className="loading">Loading...</div>
+    return <LoadingState />
   }
 
   if (isError) {
@@ -50,92 +59,124 @@ export default function JobDetail() {
   }
 
   if (!job) {
-    return <div className="error">Job not found</div>
+    return <ErrorState message="Job not found" />
   }
 
   return (
-    <div className="page">
-      <div className="page-header">
-        <h1 className="page-title">Job {job.id.slice(0, 8)}</h1>
-        <div className="page-actions">
-          {!isTerminal && (
-            <button
-              className="btn-danger"
-              onClick={() => cancelJob.mutate(job.id)}
-              disabled={cancelJob.isPending}
-            >
-              Cancel Job
-            </button>
-          )}
-          <button className="btn-secondary" onClick={() => navigate('/jobs')}>
-            Back to Jobs
-          </button>
-        </div>
-      </div>
-
-      <div className="card">
-        <h2 className="card-title">Job Details</h2>
-        <div className="detail-grid">
-          <div className="detail-item">
-            <span className="detail-label">Status</span>
-            <span className={`status-badge status-${job.status}`}>{job.status}</span>
-          </div>
-          <div className="detail-item">
-            <span className="detail-label">Exit Code</span>
-            <span>{job.exit_code ?? '—'}</span>
-          </div>
-          <div className="detail-item">
-            <span className="detail-label">Template</span>
-            {job.job_template_id ? (
-              <Link to={`/job-templates`} className="mono">
-                {job.job_template_id.slice(0, 8)}
-              </Link>
-            ) : (
-              <span>—</span>
+    <div>
+      <PageHeader
+        title={`Job ${job.id.slice(0, 8)}`}
+        actions={
+          <>
+            {!isTerminal && (
+              <Button
+                variant="destructive"
+                onClick={() => cancelJob.mutate(job.id)}
+                disabled={cancelJob.isPending}
+              >
+                Cancel Job
+              </Button>
             )}
-          </div>
-          <div className="detail-item">
-            <span className="detail-label">Revision</span>
-            <span className="mono">{job.project_revision?.slice(0, 8) ?? '—'}</span>
-          </div>
-          <div className="detail-item">
-            <span className="detail-label">Started</span>
-            <span>{job.started_at ? new Date(job.started_at).toLocaleString() : '—'}</span>
-          </div>
-          <div className="detail-item">
-            <span className="detail-label">Finished</span>
-            <span>{job.finished_at ? new Date(job.finished_at).toLocaleString() : '—'}</span>
-          </div>
-        </div>
-      </div>
+            <Button variant="secondary" onClick={() => navigate('/jobs')}>
+              Back to Jobs
+            </Button>
+          </>
+        }
+      />
 
-      <div className="card">
-        <h2 className="card-title">Job Output</h2>
-        {logsError ? (
-          <ErrorState message="Failed to load logs" />
-        ) : !logs?.results?.length ? (
-          <div className="empty-state">No logs yet</div>
-        ) : (
-          <div className="job-logs">
-            {logs.results.map((log) => (
-              <LogLine key={log.sequence} log={log} />
-            ))}
-          </div>
-        )}
-      </div>
+      <Card className="mb-6">
+        <CardHeader>
+          <CardTitle>Job Details</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            <div>
+              <dt className="text-xs font-medium text-muted-foreground">Status</dt>
+              <dd className="mt-1">
+                <StatusBadge status={job.status} />
+              </dd>
+            </div>
+            <div>
+              <dt className="text-xs font-medium text-muted-foreground">Exit Code</dt>
+              <dd className="mt-1">{job.exit_code ?? '—'}</dd>
+            </div>
+            <div>
+              <dt className="text-xs font-medium text-muted-foreground">Template</dt>
+              <dd className="mt-1">
+                {job.job_template_id ? (
+                  <Link
+                    to={`/job-templates`}
+                    className="font-mono text-xs text-primary hover:underline"
+                  >
+                    {job.job_template_id.slice(0, 8)}
+                  </Link>
+                ) : (
+                  <span>—</span>
+                )}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-xs font-medium text-muted-foreground">Revision</dt>
+              <dd className="mt-1">
+                <Mono>{job.project_revision?.slice(0, 8) ?? '—'}</Mono>
+              </dd>
+            </div>
+            <div>
+              <dt className="text-xs font-medium text-muted-foreground">Started</dt>
+              <dd className="mt-1">{job.started_at ? new Date(job.started_at).toLocaleString() : '—'}</dd>
+            </div>
+            <div>
+              <dt className="text-xs font-medium text-muted-foreground">Finished</dt>
+              <dd className="mt-1">{job.finished_at ? new Date(job.finished_at).toLocaleString() : '—'}</dd>
+            </div>
+          </dl>
+        </CardContent>
+      </Card>
 
-      <div className="card">
-        <h2 className="card-title">Events</h2>
-        {eventsError ? (
-          <ErrorState message="Failed to load events" />
-        ) : (
-          <div className="events-list">
-            {events?.results?.map((event) => (
-              <EventRow key={event.id} event={event} />
-            ))}
-          </div>
-        )}
-      </div>
+      <Card className="mb-6">
+        <CardHeader>
+          <CardTitle>Job Output</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {logsError ? (
+            <ErrorState message="Failed to load logs" />
+          ) : !logs?.results?.length ? (
+            <EmptyState message="No logs yet" />
+          ) : (
+            <div className="job-logs">
+              {logs.results.map((log) => (
+                <LogLine key={log.sequence} log={log} />
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Events</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {eventsError ? (
+            <ErrorState message="Failed to load events" />
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Time</TableHead>
+                  <TableHead>Type</TableHead>
+                  <TableHead>Details</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {events?.results?.map((event) => (
+                  <EventRow key={event.id} event={event} />
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
     </div>
   )
 }

@@ -1,6 +1,12 @@
 import { useState, useEffect } from 'react'
 import { api } from '../services/api'
 import { ErrorState } from '../components/ErrorState'
+import { PageHeader, StatusBadge, LoadingState } from '../components/Page'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import type { User } from '../types'
 
 function extractErrorMessage(err: unknown): string {
@@ -50,69 +56,84 @@ export default function Users() {
   }
 
   return (
-    <div className="page">
-      <div className="page-header">
-        <h1 className="page-title">Users</h1>
-        <button className="btn-primary" onClick={() => setShowCreate(true)}>
-          + New User
-        </button>
-      </div>
+    <div>
+      <PageHeader
+        title="Users"
+        actions={<Button onClick={() => setShowCreate(true)}>+ New User</Button>}
+      />
 
       {error && <ErrorState message={error} />}
 
       {showCreate && (
-        <div className="card">
-          <h2 className="card-title">Create User</h2>
-          <div className="form">
-            <div className="form-group">
-              <label>Email</label>
-              <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="user@example.com" />
+        <Card className="mb-6">
+          <CardHeader>
+            <CardTitle>Create User</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="user-email">Email</Label>
+              <Input
+                id="user-email"
+                type="email"
+                value={email}
+                onChange={e => setEmail(e.target.value)}
+                placeholder="user@example.com"
+              />
             </div>
-            <div className="form-group">
-              <label>Display Name</label>
-              <input value={displayName} onChange={e => setDisplayName(e.target.value)} />
+            <div className="space-y-2">
+              <Label htmlFor="user-display-name">Display Name</Label>
+              <Input
+                id="user-display-name"
+                value={displayName}
+                onChange={e => setDisplayName(e.target.value)}
+              />
             </div>
-            <div className="form-group">
-              <label>Password</label>
-              <input type="password" value={password} onChange={e => setPassword(e.target.value)} />
+            <div className="space-y-2">
+              <Label htmlFor="user-password">Password</Label>
+              <Input
+                id="user-password"
+                type="password"
+                value={password}
+                onChange={e => setPassword(e.target.value)}
+              />
             </div>
-            <div className="form-actions">
-              <button className="btn-primary" onClick={handleCreate}>Create</button>
-              <button className="btn-secondary" onClick={() => setShowCreate(false)}>Cancel</button>
+            <div className="flex gap-2">
+              <Button onClick={handleCreate}>Create</Button>
+              <Button variant="outline" onClick={() => setShowCreate(false)}>Cancel</Button>
             </div>
-          </div>
-        </div>
+          </CardContent>
+        </Card>
       )}
 
       {loading ? (
-        <div className="loading">Loading...</div>
+        <LoadingState />
       ) : (
-        <div className="card">
-          <table className="table">
-            <thead>
-              <tr>
-                <th>Email</th>
-                <th>Display Name</th>
-                <th>Status</th>
-                <th>Created</th>
-              </tr>
-            </thead>
-            <tbody>
-              {users.map(u => (
-                <tr key={u.id}>
-                  <td>{u.email}</td>
-                  <td>{u.display_name || '—'}</td>
-                  <td>
-                    <span className={`status-badge status-${u.is_active ? 'active' : 'inactive'}`}>
-                      {u.is_active ? 'Active' : 'Inactive'}
-                    </span>
-                  </td>
-                  <td>{new Date(u.created_at).toLocaleDateString()}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <Card>
+          <CardContent className="p-0">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Email</TableHead>
+                  <TableHead>Display Name</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Created</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {users.map(u => (
+                  <TableRow key={u.id}>
+                    <TableCell>{u.email}</TableCell>
+                    <TableCell>{u.display_name || '—'}</TableCell>
+                    <TableCell>
+                      <StatusBadge status={u.is_active ? 'active' : 'inactive'} />
+                    </TableCell>
+                    <TableCell>{new Date(u.created_at).toLocaleDateString()}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
       )}
     </div>
   )

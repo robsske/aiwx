@@ -2,6 +2,13 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useJobTemplates, useProjects, useInventories, useOrganizations, useLaunchJob, useCreateJobTemplate } from '../hooks/useApi'
 import { ErrorState } from '../components/ErrorState'
+import { PageHeader, EmptyState, LoadingState, Mono } from '../components/Page'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 
 function extractErrorMessage(err: unknown): string {
   if (err && typeof err === 'object' && 'response' in err) {
@@ -85,168 +92,196 @@ export default function JobTemplates() {
   }
 
   return (
-    <div className="page">
-      <div className="page-header">
-        <h1 className="page-title">Job Templates</h1>
-        <button className="btn-primary" onClick={() => setShowCreate(true)}>
-          + New Template
-        </button>
-      </div>
+    <div>
+      <PageHeader
+        title="Job Templates"
+        actions={<Button onClick={() => setShowCreate(true)}>+ New Template</Button>}
+      />
 
       {formError && <ErrorState message={formError} />}
 
       {showCreate && (
-        <div className="card">
-          <h2 className="card-title">Create Job Template</h2>
-          <form onSubmit={handleCreate} className="form">
-            <div className="form-group">
-              <label>Name</label>
-              <input value={name} onChange={e => setName(e.target.value)} required />
-            </div>
-            <div className="form-group">
-              <label>Description</label>
-              <input value={desc} onChange={e => setDesc(e.target.value)} />
-            </div>
-            <div className="form-group">
-              <label>Project *</label>
-              <select value={projectId} onChange={e => setProjectId(e.target.value)} required>
-                <option value="">Select project...</option>
-                {projects?.results?.map(p => (
-                  <option key={p.id} value={p.id}>{p.name}</option>
-                ))}
-              </select>
-            </div>
-            <div className="form-group">
-              <label>Inventory</label>
-              <select value={inventoryId} onChange={e => setInventoryId(e.target.value)}>
-                <option value="">None</option>
-                {inventories?.results?.map(i => (
-                  <option key={i.id} value={i.id}>{i.name}</option>
-                ))}
-              </select>
-            </div>
-            <div className="form-group">
-              <label>Playbook *</label>
-              <input value={playbook} onChange={e => setPlaybook(e.target.value)} placeholder="site.yml" required />
-            </div>
-
-            <h3 style={{ margin: '1rem 0 0.5rem', fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
-              Host Targeting
-            </h3>
-            <div className="form-group">
-              <label>Limit (host pattern)</label>
-              <input
-                value={limit}
-                onChange={e => setLimit(e.target.value)}
-                placeholder="web:db  or  hostname1:hostname2"
-              />
-              <small style={{ color: 'var(--text-secondary)', fontSize: '0.75rem' }}>
-                Ansible --limit pattern. Use colons for OR, colons for AND (e.g., web:&staging)
-              </small>
-            </div>
-
-            <h3 style={{ margin: '1rem 0 0.5rem', fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
-              Execution Options
-            </h3>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '1rem' }}>
-              <div className="form-group">
-                <label>Verbosity</label>
-                <select value={verbosity} onChange={e => setVerbosity(Number(e.target.value))}>
-                  <option value={0}>0 (Normal)</option>
-                  <option value={1}>1 (-v)</option>
-                  <option value={2}>2 (-vv)</option>
-                  <option value={3}>3 (-vvv)</option>
-                  <option value={4}>4 (-vvvv)</option>
-                </select>
+        <Card className="mb-6">
+          <CardHeader>
+            <CardTitle>Create Job Template</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <form onSubmit={handleCreate} className="space-y-4">
+              <div className="space-y-2">
+                <Label>Name</Label>
+                <Input value={name} onChange={e => setName(e.target.value)} required />
               </div>
-              <div className="form-group">
-                <label>Forks</label>
-                <input
-                  type="number"
-                  min="0"
-                  value={forks}
-                  onChange={e => setForks(Number(e.target.value))}
-                  placeholder="0 (default)"
-                />
+              <div className="space-y-2">
+                <Label>Description</Label>
+                <Input value={desc} onChange={e => setDesc(e.target.value)} />
               </div>
-              <div className="form-group">
-                <label>Job Tags</label>
-                <input
-                  value={jobTags}
-                  onChange={e => setJobTags(e.target.value)}
-                  placeholder="install,config"
-                />
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <Label>Project *</Label>
+                  <Select value={projectId || undefined} onValueChange={setProjectId}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select project..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {projects?.results?.map(p => (
+                        <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label>Inventory</Label>
+                  <Select value={inventoryId || '__none__'} onValueChange={(v: string) => setInventoryId(v === '__none__' ? '' : v)}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="None" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none__">None</SelectItem>
+                      {inventories?.results?.map(i => (
+                        <SelectItem key={i.id} value={i.id}>{i.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
-            </div>
-            <div className="form-group">
-              <label>Skip Tags</label>
-              <input
-                value={skipTags}
-                onChange={e => setSkipTags(e.target.value)}
-                placeholder="debug,tests"
-              />
-            </div>
+              <div className="space-y-2">
+                <Label>Playbook *</Label>
+                <Input value={playbook} onChange={e => setPlaybook(e.target.value)} placeholder="site.yml" required />
+              </div>
 
-            <div className="form-actions">
-              <button type="submit" className="btn-primary" disabled={createTemplate.isPending}>
-                {createTemplate.isPending ? 'Creating...' : 'Create'}
-              </button>
-              <button type="button" className="btn-secondary" onClick={() => setShowCreate(false)}>
-                Cancel
-              </button>
-            </div>
-          </form>
-        </div>
+              <div>
+                <h3 className="mb-2 text-sm font-medium text-muted-foreground">Host Targeting</h3>
+                <div className="space-y-2">
+                  <Label>Limit (host pattern)</Label>
+                  <Input
+                    value={limit}
+                    onChange={e => setLimit(e.target.value)}
+                    placeholder="web:db  or  hostname1:hostname2"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Ansible --limit pattern. Use colons for OR, colons for AND (e.g., web:&staging)
+                  </p>
+                </div>
+              </div>
+
+              <div>
+                <h3 className="mb-2 text-sm font-medium text-muted-foreground">Execution Options</h3>
+                <div className="grid gap-4 sm:grid-cols-3">
+                  <div className="space-y-2">
+                    <Label>Verbosity</Label>
+                    <Select value={String(verbosity)} onValueChange={(v: string) => setVerbosity(Number(v))}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="0">0 (Normal)</SelectItem>
+                        <SelectItem value="1">1 (-v)</SelectItem>
+                        <SelectItem value="2">2 (-vv)</SelectItem>
+                        <SelectItem value="3">3 (-vvv)</SelectItem>
+                        <SelectItem value="4">4 (-vvvv)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Forks</Label>
+                    <Input
+                      type="number"
+                      min={0}
+                      value={forks}
+                      onChange={e => setForks(Number(e.target.value))}
+                      placeholder="0 (default)"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Job Tags</Label>
+                    <Input
+                      value={jobTags}
+                      onChange={e => setJobTags(e.target.value)}
+                      placeholder="install,config"
+                    />
+                  </div>
+                </div>
+                <div className="mt-4 space-y-2">
+                  <Label>Skip Tags</Label>
+                  <Input
+                    value={skipTags}
+                    onChange={e => setSkipTags(e.target.value)}
+                    placeholder="debug,tests"
+                  />
+                </div>
+              </div>
+
+              <div className="flex gap-2">
+                <Button type="submit" disabled={createTemplate.isPending}>
+                  {createTemplate.isPending ? 'Creating...' : 'Create'}
+                </Button>
+                <Button type="button" variant="outline" onClick={() => setShowCreate(false)}>
+                  Cancel
+                </Button>
+              </div>
+            </form>
+          </CardContent>
+        </Card>
       )}
 
       {isLoading ? (
-        <div className="loading">Loading...</div>
+        <LoadingState />
       ) : isError ? (
         <ErrorState message="Failed to load job templates" onRetry={() => refetch()} />
       ) : templates?.results?.length === 0 ? (
-        <div className="empty-state">No job templates yet</div>
+        <Card>
+          <CardContent>
+            <EmptyState message="No job templates yet" />
+          </CardContent>
+        </Card>
       ) : (
-        <div className="card">
-          <table className="table">
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Organization</th>
-                <th>Playbook</th>
-                <th>Inventory</th>
-                <th>Limit</th>
-                <th>Verbosity</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {templates?.results?.map(jt => (
-                <tr key={jt.id}>
-                  <td>
-                    <div style={{ fontWeight: 500 }}>{jt.name}</div>
-                    {jt.description && (
-                      <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{jt.description}</div>
-                    )}
-                  </td>
-                  <td>{orgs?.results?.find(o => o.id === jt.organization_id)?.name ?? jt.organization_id.slice(0, 8)}</td>
-                  <td className="mono">{jt.playbook}</td>
-                  <td>{jt.inventory_id ? 'Yes' : '—'}</td>
-                  <td className="mono">{jt.limit || '—'}</td>
-                  <td>{jt.verbosity > 0 ? `-${'v'.repeat(jt.verbosity)}` : 'Normal'}</td>
-                  <td>
-                    <button
-                      className="btn-sm btn-primary"
-                      onClick={() => handleLaunch(jt.id)}
-                      disabled={launchJob.isPending}
-                    >
-                      Launch
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <Card>
+          <CardContent className="p-0">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Name</TableHead>
+                  <TableHead>Organization</TableHead>
+                  <TableHead>Playbook</TableHead>
+                  <TableHead>Inventory</TableHead>
+                  <TableHead>Limit</TableHead>
+                  <TableHead>Verbosity</TableHead>
+                  <TableHead>Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {templates?.results?.map(jt => (
+                  <TableRow key={jt.id}>
+                    <TableCell>
+                      <div className="font-medium">{jt.name}</div>
+                      {jt.description && (
+                        <div className="text-xs text-muted-foreground">{jt.description}</div>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      {orgs?.results?.find(o => o.id === jt.organization_id)?.name ?? (
+                        <Mono>{jt.organization_id.slice(0, 8)}</Mono>
+                      )}
+                    </TableCell>
+                    <TableCell><Mono>{jt.playbook}</Mono></TableCell>
+                    <TableCell>{jt.inventory_id ? 'Yes' : '—'}</TableCell>
+                    <TableCell><Mono>{jt.limit || '—'}</Mono></TableCell>
+                    <TableCell>{jt.verbosity > 0 ? `-${'v'.repeat(jt.verbosity)}` : 'Normal'}</TableCell>
+                    <TableCell>
+                      <Button
+                        size="sm"
+                        onClick={() => handleLaunch(jt.id)}
+                        disabled={launchJob.isPending}
+                      >
+                        Launch
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
       )}
     </div>
   )

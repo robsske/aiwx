@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 64" fill="none" role="img" aria-label="AIWX">
+  <defs>
+    <linearGradient id="aiwx-bg" x1="8" y1="4" x2="56" y2="60" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#3B82F6"/>
+      <stop offset="1" stop-color="#1D4ED8"/>
+    </linearGradient>
+    <linearGradient id="aiwx-mark" x1="18" y1="16" x2="46" y2="48" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#DBEAFE"/>
+    </linearGradient>
+  </defs>
+  <!-- mark -->
+  <rect width="64" height="64" rx="16" fill="url(#aiwx-bg)"/>
+  <circle cx="22" cy="24" r="5.5" fill="url(#aiwx-mark)"/>
+  <circle cx="42" cy="24" r="5.5" fill="url(#aiwx-mark)" opacity="0.92"/>
+  <circle cx="32" cy="44" r="6.5" fill="url(#aiwx-mark)"/>
+  <path d="M26.5 27.5C28.2 30.2 29.6 32.4 32 35.5" stroke="url(#aiwx-mark)" stroke-width="3.2" stroke-linecap="round" opacity="0.95"/>
+  <path d="M37.5 27.5C35.8 30.2 34.4 32.4 32 35.5" stroke="url(#aiwx-mark)" stroke-width="3.2" stroke-linecap="round" opacity="0.95"/>
+  <path d="M27.5 24H36.5" stroke="url(#aiwx-mark)" stroke-width="3" stroke-linecap="round" opacity="0.75"/>
+  <!-- wordmark -->
+  <text x="80" y="41" font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="28" font-weight="700" letter-spacing="-0.5" fill="#0F172A">AIWX</text>
+  <text x="81" y="54" font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="10" font-weight="500" letter-spacing="1.6" fill="#64748B">AUTOMATION</text>
+</svg>

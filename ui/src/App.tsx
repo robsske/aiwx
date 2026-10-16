@@ -17,7 +17,7 @@ export default function App() {
   const { isAuthenticated, isLoading } = useAuth()
 
   if (isLoading) {
-    return <div className="loading">Loading...</div>
+    return <div className="flex min-h-screen items-center justify-center text-sm text-muted-foreground">Loading...</div>
   }
 
   if (!isAuthenticated) {

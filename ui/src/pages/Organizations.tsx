@@ -2,6 +2,13 @@ import { useState } from 'react'
 import { api } from '../services/api'
 import { ErrorState } from '../components/ErrorState'
 import { RoleAssignments } from '../components/RoleAssignments'
+import { PageHeader, StatusBadge, EmptyState, LoadingState, Mono } from '../components/Page'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Separator } from '@/components/ui/separator'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import type { Organization, Team } from '../types'
 
 function extractErrorMessage(err: unknown): string {
@@ -50,54 +57,68 @@ function TeamsPanel({ orgId }: { orgId: string }) {
 
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-        <h3 style={{ margin: 0 }}>Teams</h3>
-        <button className="btn-primary" onClick={() => setShowCreate(true)}>+ Add Team</button>
+      <div className="mb-4 flex items-center justify-between">
+        <h3 className="text-lg font-semibold">Teams</h3>
+        <Button onClick={() => setShowCreate(true)}>+ Add Team</Button>
       </div>
 
       {error && <ErrorState message={error} />}
 
       {showCreate && (
-        <div className="card" style={{ marginBottom: '1rem', background: 'var(--bg-secondary)' }}>
-          <h4>Create Team</h4>
-          <div className="form-group">
-            <label>Name</label>
-            <input value={teamName} onChange={e => setTeamName(e.target.value)} placeholder="ops-team" />
-          </div>
-          <div className="form-group">
-            <label>Display Name</label>
-            <input value={teamDesc} onChange={e => setTeamDesc(e.target.value)} placeholder="Operations Team" />
-          </div>
-          <div className="form-actions">
-            <button className="btn-primary" onClick={handleCreate}>Create</button>
-            <button className="btn-secondary" onClick={() => setShowCreate(false)}>Cancel</button>
-          </div>
-        </div>
+        <Card className="mb-4">
+          <CardHeader>
+            <CardTitle className="text-base">Create Team</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="team-name">Name</Label>
+              <Input
+                id="team-name"
+                value={teamName}
+                onChange={e => setTeamName(e.target.value)}
+                placeholder="ops-team"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="team-display-name">Display Name</Label>
+              <Input
+                id="team-display-name"
+                value={teamDesc}
+                onChange={e => setTeamDesc(e.target.value)}
+                placeholder="Operations Team"
+              />
+            </div>
+            <div className="flex gap-2">
+              <Button onClick={handleCreate}>Create</Button>
+              <Button variant="outline" onClick={() => setShowCreate(false)}>Cancel</Button>
+            </div>
+          </CardContent>
+        </Card>
       )}
 
       {loading ? (
-        <div className="loading">Loading...</div>
+        <LoadingState />
       ) : teams.length === 0 ? (
-        <div className="empty-state">No teams in this organization</div>
+        <EmptyState message="No teams in this organization" />
       ) : (
-        <table className="table">
-          <thead>
-            <tr>
-              <th>Name</th>
-              <th>Display Name</th>
-              <th>Members</th>
-            </tr>
-          </thead>
-          <tbody>
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Name</TableHead>
+              <TableHead>Display Name</TableHead>
+              <TableHead>Members</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
             {teams.map(t => (
-              <tr key={t.id}>
-                <td className="mono">{t.name}</td>
-                <td>{t.display_name || '—'}</td>
-                <td>{t.member_count}</td>
-              </tr>
+              <TableRow key={t.id}>
+                <TableCell><Mono>{t.name}</Mono></TableCell>
+                <TableCell>{t.display_name || '—'}</TableCell>
+                <TableCell>{t.member_count}</TableCell>
+              </TableRow>
             ))}
-          </tbody>
-        </table>
+          </TableBody>
+        </Table>
       )}
     </div>
   )
@@ -140,81 +161,97 @@ export default function Organizations() {
   }
 
   return (
-    <div className="page">
-      <div className="page-header">
-        <h1 className="page-title">Organizations</h1>
-        <button className="btn-primary" onClick={() => setShowCreate(true)}>
-          + New Organization
-        </button>
-      </div>
+    <div>
+      <PageHeader
+        title="Organizations"
+        actions={<Button onClick={() => setShowCreate(true)}>+ New Organization</Button>}
+      />
 
       {error && <ErrorState message={error} />}
 
       {showCreate && (
-        <div className="card">
-          <h2 className="card-title">Create Organization</h2>
-          <div className="form">
-            <div className="form-group">
-              <label>Name (slug)</label>
-              <input value={name} onChange={e => setName(e.target.value)} placeholder="acme-corp" />
+        <Card className="mb-6">
+          <CardHeader>
+            <CardTitle>Create Organization</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="org-name">Name (slug)</Label>
+              <Input
+                id="org-name"
+                value={name}
+                onChange={e => setName(e.target.value)}
+                placeholder="acme-corp"
+              />
             </div>
-            <div className="form-group">
-              <label>Display Name</label>
-              <input value={displayName} onChange={e => setDisplayName(e.target.value)} placeholder="ACME Corporation" />
+            <div className="space-y-2">
+              <Label htmlFor="org-display-name">Display Name</Label>
+              <Input
+                id="org-display-name"
+                value={displayName}
+                onChange={e => setDisplayName(e.target.value)}
+                placeholder="ACME Corporation"
+              />
             </div>
-            <div className="form-actions">
-              <button className="btn-primary" onClick={handleCreate}>Create</button>
-              <button className="btn-secondary" onClick={() => setShowCreate(false)}>Cancel</button>
+            <div className="flex gap-2">
+              <Button onClick={handleCreate}>Create</Button>
+              <Button variant="outline" onClick={() => setShowCreate(false)}>Cancel</Button>
             </div>
-          </div>
-        </div>
+          </CardContent>
+        </Card>
       )}
 
       {selectedOrg && (
-        <div className="card">
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-            <h2 className="card-title" style={{ margin: 0 }}>Organization Detail</h2>
-            <button className="btn-secondary" onClick={() => setSelectedOrg(null)}>Close</button>
-          </div>
-          <TeamsPanel orgId={selectedOrg} />
-          <hr style={{ margin: '1.5rem 0', border: 'none', borderTop: '1px solid var(--border)' }} />
-          <RoleAssignments orgId={selectedOrg} />
-        </div>
+        <Card className="mb-6">
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <CardTitle>Organization Detail</CardTitle>
+              <Button variant="outline" onClick={() => setSelectedOrg(null)}>Close</Button>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <TeamsPanel orgId={selectedOrg} />
+            <Separator />
+            <RoleAssignments orgId={selectedOrg} />
+          </CardContent>
+        </Card>
       )}
 
       {loading ? (
-        <div className="loading">Loading...</div>
+        <LoadingState />
       ) : (
-        <div className="card">
-          <table className="table">
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Display Name</th>
-                <th>Status</th>
-                <th>Created</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {orgs.map(org => (
-                <tr key={org.id}>
-                  <td className="mono">{org.name}</td>
-                  <td>{org.display_name || '—'}</td>
-                  <td>
-                    <span className={`status-badge status-${org.status}`}>{org.status}</span>
-                  </td>
-                  <td>{new Date(org.created_at).toLocaleDateString()}</td>
-                  <td>
-                    <button className="btn-sm" onClick={() => setSelectedOrg(org.id)}>
-                      Manage Teams
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <Card>
+          <CardContent className="p-0">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Name</TableHead>
+                  <TableHead>Display Name</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Created</TableHead>
+                  <TableHead>Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {orgs.map(org => (
+                  <TableRow key={org.id}>
+                    <TableCell><Mono>{org.name}</Mono></TableCell>
+                    <TableCell>{org.display_name || '—'}</TableCell>
+                    <TableCell>
+                      <StatusBadge status={org.status} />
+                    </TableCell>
+                    <TableCell>{new Date(org.created_at).toLocaleDateString()}</TableCell>
+                    <TableCell>
+                      <Button size="sm" variant="outline" onClick={() => setSelectedOrg(org.id)}>
+                        Manage Teams
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
       )}
     </div>
   )

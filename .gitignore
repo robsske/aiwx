@@ -39,3 +39,4 @@ ui/dist/
 .mimocode/
 .venv/
 ui/node_modules/
+output/

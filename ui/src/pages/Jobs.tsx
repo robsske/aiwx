@@ -1,74 +1,78 @@
 import { Link } from 'react-router-dom'
 import { useJobs } from '../hooks/useApi'
 import { ErrorState } from '../components/ErrorState'
+import { PageHeader, StatusBadge, EmptyState, LoadingState } from '../components/Page'
+import { Card, CardContent } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 
 export default function Jobs() {
   const { data: jobs, isLoading, isError, error, refetch } = useJobs()
 
   return (
-    <div className="page">
-      <h1 className="page-title">Jobs</h1>
+    <div>
+      <PageHeader title="Jobs" />
 
       {isLoading && !jobs ? (
-        <div className="loading">Loading...</div>
+        <LoadingState />
       ) : isError && !jobs ? (
         <ErrorState
           message={error instanceof Error ? error.message : 'Failed to load jobs'}
           onRetry={() => refetch()}
         />
       ) : !jobs?.results?.length ? (
-        <div className="card">
-          <div className="empty-state">No jobs yet. Launch a job from a Job Template.</div>
-        </div>
+        <Card>
+          <CardContent>
+            <EmptyState message="No jobs yet. Launch a job from a Job Template." />
+          </CardContent>
+        </Card>
       ) : (
-        <div className="card">
-          <table className="table">
-            <thead>
-              <tr>
-                <th>ID</th>
-                <th>Status</th>
-                <th>Exit Code</th>
-                <th>Created</th>
-                <th>Duration</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {jobs.results.map((job) => (
-                <tr key={job.id}>
-                  <td>
-                    <Link to={`/jobs/${job.id}`} className="link mono">
-                      {job.id.slice(0, 8)}
-                    </Link>
-                  </td>
-                  <td>
-                    <span className={`status-badge status-${job.status}`}>
-                      {job.status}
-                    </span>
-                  </td>
-                  <td>{job.exit_code ?? '—'}</td>
-                  <td>{new Date(job.created_at).toLocaleString()}</td>
-                  <td>
-                    {job.started_at && job.finished_at
-                      ? `${Math.round(
-                          (new Date(job.finished_at).getTime() -
-                            new Date(job.started_at).getTime()) /
-                            1000,
-                        )}s`
-                      : job.started_at
-                        ? 'Running...'
-                        : '—'}
-                  </td>
-                  <td>
-                    <Link to={`/jobs/${job.id}`} className="btn-sm">
-                      View
-                    </Link>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <Card>
+          <CardContent className="p-0">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>ID</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Exit Code</TableHead>
+                  <TableHead>Created</TableHead>
+                  <TableHead>Duration</TableHead>
+                  <TableHead>Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {jobs.results.map((job) => (
+                  <TableRow key={job.id}>
+                    <TableCell>
+                      <Link to={`/jobs/${job.id}`} className="font-mono text-xs text-primary hover:underline">
+                        {job.id.slice(0, 8)}
+                      </Link>
+                    </TableCell>
+                    <TableCell><StatusBadge status={job.status} /></TableCell>
+                    <TableCell>{job.exit_code ?? '—'}</TableCell>
+                    <TableCell>{new Date(job.created_at).toLocaleString()}</TableCell>
+                    <TableCell>
+                      {job.started_at && job.finished_at
+                        ? `${Math.round(
+                            (new Date(job.finished_at).getTime() -
+                              new Date(job.started_at).getTime()) /
+                              1000,
+                          )}s`
+                        : job.started_at
+                          ? 'Running...'
+                          : '—'}
+                    </TableCell>
+                    <TableCell>
+                      <Button asChild variant="outline" size="sm">
+                        <Link to={`/jobs/${job.id}`}>View</Link>
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
       )}
     </div>
   )

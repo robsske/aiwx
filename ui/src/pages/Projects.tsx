@@ -2,6 +2,13 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useProjects, useOrganizations, useCreateProject, useSyncProject } from '../hooks/useApi'
 import { ErrorState } from '../components/ErrorState'
+import { PageHeader, StatusBadge, LoadingState, Mono } from '../components/Page'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 
 function extractErrorMessage(err: unknown): string {
   if (err && typeof err === 'object' && 'response' in err) {
@@ -61,94 +68,118 @@ export default function Projects() {
   }
 
   return (
-    <div className="page">
-      <div className="page-header">
-        <h1 className="page-title">Projects</h1>
-        <button className="btn-primary" onClick={() => setShowCreate(true)}>
-          + New Project
-        </button>
-      </div>
+    <div>
+      <PageHeader
+        title="Projects"
+        actions={<Button onClick={() => setShowCreate(true)}>+ New Project</Button>}
+      />
 
       {formError && <ErrorState message={formError} />}
 
       {showCreate && (
-        <div className="card">
-          <h2 className="card-title">Create Project</h2>
-          <form onSubmit={handleCreate} className="form">
-            <div className="form-group">
-              <label>Organization</label>
-              <select value={orgId} onChange={(e) => setOrgId(e.target.value)}>
-                <option value="">Default (from auth)</option>
-                {orgs?.results?.map((o) => (
-                  <option key={o.id} value={o.id}>{o.name}</option>
-                ))}
-              </select>
-            </div>
-            <div className="form-group">
-              <label>Name</label>
-              <input type="text" value={name} onChange={(e) => setName(e.target.value)} required />
-            </div>
-            <div className="form-group">
-              <label>Git URL</label>
-              <input type="url" value={scmUrl} onChange={(e) => setScmUrl(e.target.value)}
-                placeholder="https://github.com/org/repo.git" required />
-            </div>
-            <div className="form-group">
-              <label>Branch</label>
-              <input type="text" value={scmBranch} onChange={(e) => setScmBranch(e.target.value)} placeholder="main" />
-            </div>
-            <div className="form-actions">
-              <button type="submit" className="btn-primary" disabled={createProject.isPending}>
-                {createProject.isPending ? 'Creating...' : 'Create'}
-              </button>
-              <button type="button" className="btn-secondary" onClick={() => setShowCreate(false)}>Cancel</button>
-            </div>
-          </form>
-        </div>
+        <Card className="mb-6">
+          <CardHeader>
+            <CardTitle>Create Project</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <form onSubmit={handleCreate} className="space-y-4">
+              <div className="space-y-2">
+                <Label>Organization</Label>
+                <Select value={orgId || '__default__'} onValueChange={(v: string) => setOrgId(v === '__default__' ? '' : v)}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Default (from auth)" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__default__">Default (from auth)</SelectItem>
+                    {orgs?.results?.map((o) => (
+                      <SelectItem key={o.id} value={o.id}>{o.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Name</Label>
+                <Input value={name} onChange={(e) => setName(e.target.value)} required />
+              </div>
+              <div className="space-y-2">
+                <Label>Git URL</Label>
+                <Input
+                  type="url"
+                  value={scmUrl}
+                  onChange={(e) => setScmUrl(e.target.value)}
+                  placeholder="https://github.com/org/repo.git"
+                  required
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Branch</Label>
+                <Input value={scmBranch} onChange={(e) => setScmBranch(e.target.value)} placeholder="main" />
+              </div>
+              <div className="flex gap-2">
+                <Button type="submit" disabled={createProject.isPending}>
+                  {createProject.isPending ? 'Creating...' : 'Create'}
+                </Button>
+                <Button type="button" variant="outline" onClick={() => setShowCreate(false)}>
+                  Cancel
+                </Button>
+              </div>
+            </form>
+          </CardContent>
+        </Card>
       )}
 
       {isLoading && !projects ? (
-        <div className="loading">Loading...</div>
+        <LoadingState />
       ) : isError && !projects ? (
         <ErrorState message="Failed to load projects" onRetry={() => refetch()} />
       ) : (
-        <div className="card">
-          <table className="table">
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Organization</th>
-                <th>URL</th>
-                <th>Branch</th>
-                <th>Status</th>
-                <th>Revision</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {projects?.results?.map((project) => (
-                <tr key={project.id}>
-                  <td>
-                    <Link to={`/projects/${project.id}`} className="link">{project.name}</Link>
-                  </td>
-                  <td>{orgName(project.organization_id)}</td>
-                  <td className="mono">{project.scm_url}</td>
-                  <td>{project.scm_branch}</td>
-                  <td>
-                    <span className={`status-badge status-${project.sync_status}`}>{project.sync_status}</span>
-                  </td>
-                  <td className="mono">{project.latest_revision?.slice(0, 8) ?? '—'}</td>
-                  <td>
-                    <button className="btn-sm" onClick={() => handleSync(project.id)}
-                      disabled={syncingId === project.id || project.sync_status === 'running'}>
-                      {syncingId === project.id ? 'Syncing...' : 'Sync'}
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <Card>
+          <CardContent className="p-0">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Name</TableHead>
+                  <TableHead>Organization</TableHead>
+                  <TableHead>URL</TableHead>
+                  <TableHead>Branch</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Revision</TableHead>
+                  <TableHead>Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {projects?.results?.map((project) => (
+                  <TableRow key={project.id}>
+                    <TableCell>
+                      <Link to={`/projects/${project.id}`} className="text-primary hover:underline">
+                        {project.name}
+                      </Link>
+                    </TableCell>
+                    <TableCell>{orgName(project.organization_id)}</TableCell>
+                    <TableCell><Mono>{project.scm_url}</Mono></TableCell>
+                    <TableCell>{project.scm_branch}</TableCell>
+                    <TableCell>
+                      <StatusBadge status={project.sync_status} />
+                    </TableCell>
+                    <TableCell>
+                      <Mono>{project.latest_revision?.slice(0, 8) ?? '—'}</Mono>
+                    </TableCell>
+                    <TableCell>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => handleSync(project.id)}
+                        disabled={syncingId === project.id || project.sync_status === 'running'}
+                      >
+                        {syncingId === project.id ? 'Syncing...' : 'Sync'}
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
       )}
     </div>
   )

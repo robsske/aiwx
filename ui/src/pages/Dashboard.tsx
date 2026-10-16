@@ -1,5 +1,8 @@
 import { useProjects, useJobs } from '../hooks/useApi'
 import { ErrorState } from '../components/ErrorState'
+import { PageHeader, StatusBadge, EmptyState, LoadingState, Mono } from '../components/Page'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 
 export default function Dashboard() {
   const {
@@ -22,96 +25,93 @@ export default function Dashboard() {
   const successfulJobs = jobs?.results?.filter((j) => j.status === 'successful').length ?? 0
 
   return (
-    <div className="page">
-      <h1 className="page-title">Dashboard</h1>
+    <div>
+      <PageHeader title="Dashboard" />
 
-      <div className="stats-grid">
-        <div className="stat-card">
-          <div className="stat-value">{projects?.results?.length ?? 0}</div>
-          <div className="stat-label">Projects</div>
-        </div>
-        <div className="stat-card">
-          <div className="stat-value">{jobs?.results?.length ?? 0}</div>
-          <div className="stat-label">Total Jobs</div>
-        </div>
-        <div className="stat-card">
-          <div className="stat-value">{activeJobs}</div>
-          <div className="stat-label">Active Jobs</div>
-        </div>
-        <div className="stat-card">
-          <div className="stat-value">{successfulJobs}</div>
-          <div className="stat-label">Successful</div>
-        </div>
+      <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        {[
+          { value: projects?.results?.length ?? 0, label: 'Projects' },
+          { value: jobs?.results?.length ?? 0, label: 'Total Jobs' },
+          { value: activeJobs, label: 'Active Jobs' },
+          { value: successfulJobs, label: 'Successful' },
+        ].map((stat) => (
+          <Card key={stat.label}>
+            <CardContent className="pt-6">
+              <div className="text-3xl font-semibold tracking-tight">{stat.value}</div>
+              <div className="text-sm text-muted-foreground">{stat.label}</div>
+            </CardContent>
+          </Card>
+        ))}
       </div>
 
-      <div className="content-grid">
-        <div className="card">
-          <h2 className="card-title">Recent Jobs</h2>
-          {jobsLoading && !jobs ? (
-            <div className="loading">Loading...</div>
-          ) : jobsError && !jobs ? (
-            <ErrorState message="Failed to load jobs" onRetry={() => refetchJobs()} />
-          ) : recentJobs.length === 0 ? (
-            <div className="empty-state">No jobs yet</div>
-          ) : (
-            <table className="table">
-              <thead>
-                <tr>
-                  <th>ID</th>
-                  <th>Status</th>
-                  <th>Created</th>
-                </tr>
-              </thead>
-              <tbody>
-                {recentJobs.map((job) => (
-                  <tr key={job.id}>
-                    <td className="mono">{job.id.slice(0, 8)}</td>
-                    <td>
-                      <span className={`status-badge status-${job.status}`}>
-                        {job.status}
-                      </span>
-                    </td>
-                    <td>{new Date(job.created_at).toLocaleString()}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
+      <div className="grid gap-6 lg:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <CardTitle>Recent Jobs</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {jobsLoading && !jobs ? (
+              <LoadingState />
+            ) : jobsError && !jobs ? (
+              <ErrorState message="Failed to load jobs" onRetry={() => refetchJobs()} />
+            ) : recentJobs.length === 0 ? (
+              <EmptyState message="No jobs yet" />
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>ID</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Created</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {recentJobs.map((job) => (
+                    <TableRow key={job.id}>
+                      <TableCell><Mono>{job.id.slice(0, 8)}</Mono></TableCell>
+                      <TableCell><StatusBadge status={job.status} /></TableCell>
+                      <TableCell>{new Date(job.created_at).toLocaleString()}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+          </CardContent>
+        </Card>
 
-        <div className="card">
-          <h2 className="card-title">Recent Projects</h2>
-          {projectsLoading && !projects ? (
-            <div className="loading">Loading...</div>
-          ) : projectsError && !projects ? (
-            <ErrorState message="Failed to load projects" onRetry={() => refetchProjects()} />
-          ) : projects?.results?.length === 0 ? (
-            <div className="empty-state">No projects yet</div>
-          ) : (
-            <table className="table">
-              <thead>
-                <tr>
-                  <th>Name</th>
-                  <th>Status</th>
-                  <th>Revision</th>
-                </tr>
-              </thead>
-              <tbody>
-                {projects?.results?.slice(0, 5).map((project) => (
-                  <tr key={project.id}>
-                    <td>{project.name}</td>
-                    <td>
-                      <span className={`status-badge status-${project.sync_status}`}>
-                        {project.sync_status}
-                      </span>
-                    </td>
-                    <td className="mono">{project.latest_revision?.slice(0, 8) ?? '—'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
+        <Card>
+          <CardHeader>
+            <CardTitle>Recent Projects</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {projectsLoading && !projects ? (
+              <LoadingState />
+            ) : projectsError && !projects ? (
+              <ErrorState message="Failed to load projects" onRetry={() => refetchProjects()} />
+            ) : projects?.results?.length === 0 ? (
+              <EmptyState message="No projects yet" />
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Name</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Revision</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {projects?.results?.slice(0, 5).map((project) => (
+                    <TableRow key={project.id}>
+                      <TableCell>{project.name}</TableCell>
+                      <TableCell><StatusBadge status={project.sync_status} /></TableCell>
+                      <TableCell><Mono>{project.latest_revision?.slice(0, 8) ?? '—'}</Mono></TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+          </CardContent>
+        </Card>
       </div>
     </div>
   )

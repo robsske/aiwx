@@ -1,4 +1,12 @@
-import { useEffect, useRef } from 'react'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from './ui/dialog'
+import { Button } from './ui/button'
 
 interface ConfirmDialogProps {
   open: boolean
@@ -21,35 +29,28 @@ export function ConfirmDialog({
   onConfirm,
   onCancel,
 }: ConfirmDialogProps) {
-  const dialogRef = useRef<HTMLDialogElement>(null)
-
-  useEffect(() => {
-    const dialog = dialogRef.current
-    if (!dialog) return
-    if (open && !dialog.open) dialog.showModal()
-    if (!open && dialog.open) dialog.close()
-  }, [open])
-
   return (
-    <dialog ref={dialogRef} className="dialog" onClose={onCancel}>
-      <div className="dialog-content">
-        <h2 className="dialog-title">{title}</h2>
-        <p className="dialog-message">{message}</p>
-        <div className="dialog-actions">
-          <button className="btn-secondary" onClick={onCancel}>
+    <Dialog open={open} onOpenChange={(next: boolean) => { if (!next) onCancel() }}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>{title}</DialogTitle>
+          <DialogDescription>{message}</DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <Button variant="outline" onClick={onCancel}>
             {cancelLabel}
-          </button>
-          <button
-            className={danger ? 'btn-danger' : 'btn-primary'}
+          </Button>
+          <Button
+            variant={danger ? 'destructive' : 'default'}
             onClick={() => {
               onConfirm()
-              dialogRef.current?.close()
+              onCancel()
             }}
           >
             {confirmLabel}
-          </button>
-        </div>
-      </div>
-    </dialog>
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }
