@@ -59,15 +59,19 @@ func NewRouter(deps Deps) http.Handler {
 	protectedMux.HandleFunc("POST /api/v1/organizations/{orgId}/teams", deps.handleCreateTeam)
 	protectedMux.HandleFunc("GET /api/v1/organizations/{orgId}/teams/{teamId}", deps.handleGetTeam)
 	protectedMux.HandleFunc("DELETE /api/v1/organizations/{orgId}/teams/{teamId}", deps.handleDeleteTeam)
+	protectedMux.HandleFunc("GET /api/v1/organizations/{orgId}/teams/{teamId}/members", deps.handleListTeamMembers)
 	protectedMux.HandleFunc("POST /api/v1/organizations/{orgId}/teams/{teamId}/members", deps.handleAddTeamMember)
 	protectedMux.HandleFunc("DELETE /api/v1/organizations/{orgId}/teams/{teamId}/members/{userId}", deps.handleRemoveTeamMember)
 
 	// Users — create is platform-admin only
+	protectedMux.HandleFunc("GET /api/v1/users", deps.handleListUsers)
 	protectedMux.Handle("POST /api/v1/users",
 		wrapHandler(deps.handleCreateUser, Require(deps.Checker, rbac.ActionManage, rbac.ResourceUser)))
 	protectedMux.HandleFunc("GET /api/v1/users/{id}", deps.handleGetUser)
 
 	// Role Assignments — manage is org-admin or platform-admin
+	protectedMux.HandleFunc("GET /api/v1/roles", deps.handleListAvailableRoles)
+	protectedMux.HandleFunc("GET /api/v1/organizations/{orgId}/role-assignments", deps.handleListRoleAssignments)
 	protectedMux.Handle("POST /api/v1/organizations/{orgId}/role-assignments",
 		wrapHandler(deps.handleCreateRoleAssignment, Require(deps.Checker, rbac.ActionManage, rbac.ResourceTeam)))
 	protectedMux.Handle("DELETE /api/v1/organizations/{orgId}/role-assignments/{id}",

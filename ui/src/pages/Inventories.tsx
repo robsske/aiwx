@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useInventories, useCreateInventory } from '../hooks/useApi'
+import { useInventories, useOrganizations, useCreateInventory } from '../hooks/useApi'
 import { api } from '../services/api'
 import { ErrorState } from '../components/ErrorState'
 import type { InventoryHost, InventoryGroup } from '../types'
@@ -227,6 +227,7 @@ function InventoryDetail({ inventoryId, onClose }: { inventoryId: string; onClos
 
 export default function Inventories() {
   const { data: inventories, isLoading, isError, refetch } = useInventories()
+  const { data: orgs } = useOrganizations()
   const createInventory = useCreateInventory()
   const [showCreate, setShowCreate] = useState(false)
   const [name, setName] = useState('')
@@ -294,6 +295,7 @@ export default function Inventories() {
             <thead>
               <tr>
                 <th>Name</th>
+                <th>Organization</th>
                 <th>Description</th>
                 <th>Hosts</th>
                 <th>Groups</th>
@@ -304,6 +306,7 @@ export default function Inventories() {
               {inventories?.results?.map(inv => (
                 <tr key={inv.id}>
                   <td>{inv.name}</td>
+                  <td>{orgs?.results?.find(o => o.id === inv.organization_id)?.name ?? inv.organization_id.slice(0, 8)}</td>
                   <td>{inv.description || '—'}</td>
                   <td>{inv.host_count}</td>
                   <td>{inv.group_count}</td>

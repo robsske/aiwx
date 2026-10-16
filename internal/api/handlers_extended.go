@@ -232,6 +232,44 @@ func (d *Deps) handleRemoveTeamMember(w http.ResponseWriter, r *http.Request) {
 
 // ─── Role Assignment Handlers ─────────────────────────────────────────────────
 
+func (d *Deps) handleListRoleAssignments(w http.ResponseWriter, r *http.Request) {
+	orgID, err := parseUUID(r.PathValue("orgId"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid organization ID")
+		return
+	}
+
+	assignments, err := d.Repos.RoleAssignments.ListByOrg(r.Context(), orgID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to list role assignments")
+		return
+	}
+	if assignments == nil {
+		assignments = []domain.RoleAssignment{}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"results":  assignments,
+		"has_more": false,
+	})
+}
+
+func (d *Deps) handleListAvailableRoles(w http.ResponseWriter, r *http.Request) {
+	roles, err := d.Repos.RoleAssignments.ListAvailableRoles(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to list roles")
+		return
+	}
+	if roles == nil {
+		roles = []map[string]any{}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"results":  roles,
+		"has_more": false,
+	})
+}
+
 func (d *Deps) handleCreateRoleAssignment(w http.ResponseWriter, r *http.Request) {
 	orgID, err := parseUUID(r.PathValue("orgId"))
 	if err != nil {

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useCredentials, useCredentialTypes, useCreateCredential, useDeleteCredential } from '../hooks/useApi'
+import { useCredentials, useCredentialTypes, useOrganizations, useCreateCredential, useDeleteCredential } from '../hooks/useApi'
 import { ErrorState } from '../components/ErrorState'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 
@@ -15,6 +15,7 @@ function extractErrorMessage(err: unknown): string {
 export default function Credentials() {
   const { data: credentials, isLoading, isError, error, refetch } = useCredentials()
   const { data: credentialTypes, isLoading: typesLoading } = useCredentialTypes()
+  const { data: orgs } = useOrganizations()
   const createCredential = useCreateCredential()
   const deleteCredential = useDeleteCredential()
   const [showCreate, setShowCreate] = useState(false)
@@ -155,6 +156,7 @@ export default function Credentials() {
             <thead>
               <tr>
                 <th>Name</th>
+                <th>Organization</th>
                 <th>Type</th>
                 <th>Created</th>
                 <th>Actions</th>
@@ -168,6 +170,7 @@ export default function Credentials() {
                 return (
                   <tr key={cred.id}>
                     <td>{cred.name}</td>
+                    <td>{orgs?.results?.find(o => o.id === cred.organization_id)?.name ?? cred.organization_id.slice(0, 8)}</td>
                     <td>{typeName}</td>
                     <td>{new Date(cred.created_at).toLocaleDateString()}</td>
                     <td>

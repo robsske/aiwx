@@ -118,6 +118,46 @@ func (d *Deps) handleGetUser(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, user)
 }
 
+func (d *Deps) handleListUsers(w http.ResponseWriter, r *http.Request) {
+	limit := parseLimit(r)
+
+	users, err := d.Repos.Users.List(r.Context(), limit)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to list users")
+		return
+	}
+	if users == nil {
+		users = []domain.User{}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"results":  users,
+		"has_more": false,
+	})
+}
+
+func (d *Deps) handleListTeamMembers(w http.ResponseWriter, r *http.Request) {
+	teamID, err := parseUUID(r.PathValue("teamId"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid team ID")
+		return
+	}
+
+	members, err := d.Repos.Teams.ListMembers(r.Context(), teamID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to list team members")
+		return
+	}
+	if members == nil {
+		members = []domain.User{}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"results":  members,
+		"has_more": false,
+	})
+}
+
 // ─── Project Handlers ─────────────────────────────────────────────────────────
 
 func (d *Deps) handleCreateProject(w http.ResponseWriter, r *http.Request) {
@@ -131,9 +171,15 @@ func (d *Deps) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	orgID, ok := requireOrgID(w, r)
+	scope, ok := d.requireScope(w, r)
 	if !ok {
 		return
+	}
+
+	// Use provided org_id or fall back to auth context
+	orgID := scope.OrgIDs[0]
+	if input.OrganizationID != nil {
+		orgID = *input.OrganizationID
 	}
 
 	project, err := d.Repos.Projects.Create(r.Context(), input, orgID)

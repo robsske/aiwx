@@ -248,6 +248,27 @@ func (r *UserRepo) GetByEmail(ctx context.Context, email string) (*domain.User, 
 	return user, nil
 }
 
+func (r *UserRepo) List(ctx context.Context, limit int) ([]domain.User, error) {
+	rows, err := r.pool.Query(ctx,
+		`SELECT id, email, display_name, is_active, created_at
+		 FROM users ORDER BY email LIMIT $1`, limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var users []domain.User
+	for rows.Next() {
+		var u domain.User
+		if err := rows.Scan(&u.ID, &u.Email, &u.DisplayName, &u.IsActive, &u.CreatedAt); err != nil {
+			return nil, err
+		}
+		users = append(users, u)
+	}
+	return users, nil
+}
+
 // ─── Projects ─────────────────────────────────────────────────────────────────
 
 type ProjectRepo struct {
@@ -420,6 +441,30 @@ func (r *TeamRepo) RemoveMember(ctx context.Context, teamID, userID uuid.UUID) e
 	return err
 }
 
+func (r *TeamRepo) ListMembers(ctx context.Context, teamID uuid.UUID) ([]domain.User, error) {
+	rows, err := r.pool.Query(ctx,
+		`SELECT u.id, u.email, u.display_name, u.is_active, u.created_at
+		 FROM users u
+		 JOIN team_members tm ON tm.user_id = u.id
+		 WHERE tm.team_id = $1
+		 ORDER BY u.email`, teamID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var members []domain.User
+	for rows.Next() {
+		var u domain.User
+		if err := rows.Scan(&u.ID, &u.Email, &u.DisplayName, &u.IsActive, &u.CreatedAt); err != nil {
+			return nil, err
+		}
+		members = append(members, u)
+	}
+	return members, nil
+}
+
 // ─── Role Assignments ─────────────────────────────────────────────────────────
 
 type RoleAssignmentRepo struct {
@@ -465,6 +510,53 @@ func (r *RoleAssignmentRepo) Create(ctx context.Context, input domain.RoleAssign
 func (r *RoleAssignmentRepo) Delete(ctx context.Context, id uuid.UUID) error {
 	_, err := r.pool.Exec(ctx, `DELETE FROM role_assignments WHERE id = $1`, id)
 	return err
+}
+
+// ListByOrg returns all role assignments for an organization.
+func (r *RoleAssignmentRepo) ListByOrg(ctx context.Context, orgID uuid.UUID) ([]domain.RoleAssignment, error) {
+	rows, err := r.pool.Query(ctx,
+		`SELECT ra.id, r.name, ra.user_id, ra.team_id, ra.organization_id, ra.created_at
+		 FROM role_assignments ra
+		 JOIN roles r ON r.id = ra.role_id
+		 WHERE ra.organization_id = $1
+		 ORDER BY r.name, ra.created_at`,
+		orgID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var assignments []domain.RoleAssignment
+	for rows.Next() {
+		var a domain.RoleAssignment
+		if err := rows.Scan(&a.ID, &a.RoleName, &a.UserID, &a.TeamID, &a.OrganizationID, &a.CreatedAt); err != nil {
+			return nil, err
+		}
+		assignments = append(assignments, a)
+	}
+	return assignments, nil
+}
+
+// ListAvailableRoles returns all distinct role names.
+func (r *RoleAssignmentRepo) ListAvailableRoles(ctx context.Context) ([]map[string]any, error) {
+	rows, err := r.pool.Query(ctx,
+		`SELECT DISTINCT name FROM roles ORDER BY name`,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var roles []map[string]any
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return nil, err
+		}
+		roles = append(roles, map[string]any{"name": name})
+	}
+	return roles, nil
 }
 
 // ListRolesForUser returns all role assignments for a user across all orgs.

@@ -107,6 +107,7 @@ type Project struct {
 }
 
 type ProjectCreate struct {
+	OrganizationID  *uuid.UUID `json:"organization_id,omitempty"`
 	Name            string     `json:"name"`
 	SCMURL          string     `json:"scm_url"`
 	SCMBranch       string     `json:"scm_branch,omitempty"`

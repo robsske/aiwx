@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useJobTemplates, useProjects, useInventories, useLaunchJob, useCreateJobTemplate } from '../hooks/useApi'
+import { useJobTemplates, useProjects, useInventories, useOrganizations, useLaunchJob, useCreateJobTemplate } from '../hooks/useApi'
 import { ErrorState } from '../components/ErrorState'
 
 function extractErrorMessage(err: unknown): string {
@@ -17,6 +17,7 @@ export default function JobTemplates() {
   const { data: templates, isLoading, isError, refetch } = useJobTemplates()
   const { data: projects } = useProjects()
   const { data: inventories } = useInventories()
+  const { data: orgs } = useOrganizations()
   const launchJob = useLaunchJob()
   const createTemplate = useCreateJobTemplate()
   const [showCreate, setShowCreate] = useState(false)
@@ -210,6 +211,7 @@ export default function JobTemplates() {
             <thead>
               <tr>
                 <th>Name</th>
+                <th>Organization</th>
                 <th>Playbook</th>
                 <th>Inventory</th>
                 <th>Limit</th>
@@ -226,6 +228,7 @@ export default function JobTemplates() {
                       <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{jt.description}</div>
                     )}
                   </td>
+                  <td>{orgs?.results?.find(o => o.id === jt.organization_id)?.name ?? jt.organization_id.slice(0, 8)}</td>
                   <td className="mono">{jt.playbook}</td>
                   <td>{jt.inventory_id ? 'Yes' : '—'}</td>
                   <td className="mono">{jt.limit || '—'}</td>

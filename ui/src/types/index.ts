@@ -9,6 +9,18 @@ export interface Organization {
   updated_at: string
 }
 
+// ─── Team ─────────────────────────────────────────────────────────────────────
+
+export interface Team {
+  id: string
+  name: string
+  display_name: string
+  organization_id: string
+  member_count: number
+  created_at: string
+  updated_at: string
+}
+
 // ─── Project ──────────────────────────────────────────────────────────────────
 
 export interface Project {
@@ -143,6 +155,16 @@ export interface PaginatedResponse<T> {
   results: T[]
   next_cursor: string | null
   has_more: boolean
+}
+
+// ─── User ─────────────────────────────────────────────────────────────────────
+
+export interface User {
+  id: string
+  email: string
+  display_name: string
+  is_active: boolean
+  created_at: string
 }
 
 // ─── Auth ─────────────────────────────────────────────────────────────────────

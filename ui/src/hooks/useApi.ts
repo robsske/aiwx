@@ -1,6 +1,15 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '../services/api'
 
+// ─── Organizations ────────────────────────────────────────────────────────────
+
+export function useOrganizations() {
+  return useQuery({
+    queryKey: ['organizations'],
+    queryFn: () => api.listOrganizations(),
+  })
+}
+
 // ─── Projects ─────────────────────────────────────────────────────────────────
 
 export function useProjects() {

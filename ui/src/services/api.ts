@@ -72,6 +72,73 @@ class ApiClient {
     return response.data
   }
 
+  async createOrganization(data: { name: string; display_name?: string }): Promise<Organization> {
+    const response = await this.client.post('/organizations', data)
+    return response.data
+  }
+
+  // ─── Teams ──────────────────────────────────────────────────────────────
+
+  async listTeams(orgId: string): Promise<PaginatedResponse<import('../types').Team>> {
+    const response = await this.client.get(`/organizations/${orgId}/teams`)
+    return response.data
+  }
+
+  async createTeam(orgId: string, data: { name: string; display_name?: string }): Promise<import('../types').Team> {
+    const response = await this.client.post(`/organizations/${orgId}/teams`, data)
+    return response.data
+  }
+
+  async deleteTeam(orgId: string, teamId: string): Promise<void> {
+    await this.client.delete(`/organizations/${orgId}/teams/${teamId}`)
+  }
+
+  async listTeamMembers(orgId: string, teamId: string): Promise<PaginatedResponse<import('../types').User>> {
+    const response = await this.client.get(`/organizations/${orgId}/teams/${teamId}/members`)
+    return response.data
+  }
+
+  async addTeamMember(orgId: string, teamId: string, userId: string): Promise<void> {
+    await this.client.post(`/organizations/${orgId}/teams/${teamId}/members`, { user_id: userId })
+  }
+
+  async removeTeamMember(orgId: string, teamId: string, userId: string): Promise<void> {
+    await this.client.delete(`/organizations/${orgId}/teams/${teamId}/members/${userId}`)
+  }
+
+  // ─── Role Assignments ───────────────────────────────────────────────────
+
+  async listRoles(): Promise<{ results: { name: string }[] }> {
+    const response = await this.client.get('/roles')
+    return response.data
+  }
+
+  async listRoleAssignments(orgId: string): Promise<PaginatedResponse<{ id: string; role_name: string; user_id: string | null; team_id: string | null; organization_id: string; created_at: string }>> {
+    const response = await this.client.get(`/organizations/${orgId}/role-assignments`)
+    return response.data
+  }
+
+  async createRoleAssignment(orgId: string, data: { role_name: string; user_id?: string; team_id?: string }): Promise<{ id: string }> {
+    const response = await this.client.post(`/organizations/${orgId}/role-assignments`, data)
+    return response.data
+  }
+
+  async deleteRoleAssignment(orgId: string, id: string): Promise<void> {
+    await this.client.delete(`/organizations/${orgId}/role-assignments/${id}`)
+  }
+
+  // ─── Users ──────────────────────────────────────────────────────────────
+
+  async listUsers(): Promise<PaginatedResponse<import('../types').User>> {
+    const response = await this.client.get('/users')
+    return response.data
+  }
+
+  async createUser(data: { email: string; display_name?: string; password?: string }): Promise<import('../types').User> {
+    const response = await this.client.post('/users', data)
+    return response.data
+  }
+
   // ─── Projects ──────────────────────────────────────────────────────────────
 
   async listProjects(cursor?: string, limit = 50): Promise<PaginatedResponse<Project>> {

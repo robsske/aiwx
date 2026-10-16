@@ -2,6 +2,7 @@ import { Routes, Route, Navigate } from 'react-router-dom'
 import { useAuth } from './hooks/useAuth'
 import Layout from './components/Layout'
 import Dashboard from './pages/Dashboard'
+import Organizations from './pages/Organizations'
 import Projects from './pages/Projects'
 import ProjectDetail from './pages/ProjectDetail'
 import Jobs from './pages/Jobs'
@@ -9,6 +10,7 @@ import JobDetail from './pages/JobDetail'
 import JobTemplates from './pages/JobTemplates'
 import Credentials from './pages/Credentials'
 import Inventories from './pages/Inventories'
+import Users from './pages/Users'
 import Login from './pages/Login'
 
 export default function App() {
@@ -31,6 +33,7 @@ export default function App() {
     <Layout>
       <Routes>
         <Route path="/" element={<Dashboard />} />
+        <Route path="/organizations" element={<Organizations />} />
         <Route path="/projects" element={<Projects />} />
         <Route path="/projects/:id" element={<ProjectDetail />} />
         <Route path="/jobs" element={<Jobs />} />
@@ -38,6 +41,7 @@ export default function App() {
         <Route path="/job-templates" element={<JobTemplates />} />
         <Route path="/credentials" element={<Credentials />} />
         <Route path="/inventories" element={<Inventories />} />
+        <Route path="/users" element={<Users />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Layout>
