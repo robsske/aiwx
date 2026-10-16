@@ -16,6 +16,7 @@ import (
 	"github.com/rverhe/aiwx/internal/rbac"
 	"github.com/rverhe/aiwx/internal/reconcile"
 	"github.com/rverhe/aiwx/internal/repository"
+	"github.com/rverhe/aiwx/internal/security"
 	"github.com/rverhe/aiwx/internal/service"
 )
 
@@ -60,16 +61,33 @@ func main() {
 	// Set up project sync worker
 	syncAdapter := api.NewGitSyncAdapter(repos.Projects, logger)
 
+	// Credential encryption at rest (AES-GCM)
+	encSecret := os.Getenv("CRED_ENC_KEY")
+	if encSecret == "" {
+		encSecret = cfg.JWTSecret
+	}
+	encryptor, err := security.NewEncryptor(encSecret)
+	if err != nil {
+		logger.Error("credential encryptor init failed", "error", err)
+		os.Exit(1)
+	}
+	repos.SetCredentialCrypto(encryptor)
+
+	// Brute-force protection on login
+	authLimiter := security.NewRateLimiter(10, time.Minute)
+
 	router := api.NewRouter(api.Deps{
-		Logger:     logger,
-		DB:         db,
-		Repos:      repos,
-		Extractor:  extractor,
-		Issuer:     tokenIssuer,
-		Outbox:     outboxStore,
-		Checker:    checker,
-		SyncWorker: syncAdapter,
-		Config:     cfg,
+		Logger:      logger,
+		DB:          db,
+		Repos:       repos,
+		Extractor:   extractor,
+		Issuer:      tokenIssuer,
+		Outbox:      outboxStore,
+		Checker:     checker,
+		SyncWorker:  syncAdapter,
+		Config:      cfg,
+		Encryptor:   encryptor,
+		AuthLimiter: authLimiter.Middleware,
 	})
 
 	srv := &http.Server{
@@ -85,14 +103,22 @@ func main() {
 	defer stop()
 
 	// Start job worker with real ansible-playbook runner
+	ansiblePath := os.Getenv("ANSIBLE_PLAYBOOK")
+	if ansiblePath == "" {
+		ansiblePath = "/home/rverhe/aiwx/.venv/bin/ansible-playbook"
+	}
+	artifactsDir := os.Getenv("AIWX_ARTIFACTS_DIR")
+	if artifactsDir == "" {
+		artifactsDir = "/tmp/aiwx-artifacts"
+	}
 	runner := service.NewLocalRunner(
-		"/home/rverhe/aiwx/.venv/bin/ansible-playbook",
-		"/tmp/aiwx-artifacts",
+		ansiblePath,
+		artifactsDir,
 		repos.JobLogs,
 	)
 	worker := service.NewWorker(db.Pool, runner, logger)
 	go func() {
-		logger.Info("starting job worker", "ansible", "/home/rverhe/aiwx/.venv/bin/ansible-playbook")
+		logger.Info("starting job worker", "ansible", ansiblePath)
 		if err := worker.Run(ctx); err != nil && err != context.Canceled {
 			logger.Error("worker failed", "error", err)
 		}
@@ -150,6 +176,11 @@ func loadConfig() Config {
 	}
 	if cfg.JWTSecret == "" {
 		fmt.Fprintln(os.Stderr, "FATAL: JWT_SECRET is required")
+		os.Exit(1)
+	}
+	// Enforce a minimum secret length in non-dev environments.
+	if len(cfg.JWTSecret) < 32 && os.Getenv("AIWX_ALLOW_WEAK_JWT") != "1" {
+		fmt.Fprintln(os.Stderr, "FATAL: JWT_SECRET must be at least 32 bytes (set AIWX_ALLOW_WEAK_JWT=1 to override in dev)")
 		os.Exit(1)
 	}
 

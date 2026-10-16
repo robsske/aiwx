@@ -58,9 +58,12 @@ export default function WorkflowBuilder() {
   const [message, setMessage] = useState<string | null>(null)
   const canvasRef = useRef<HTMLDivElement>(null)
   const dragRef = useRef<{ id: string; ox: number; oy: number } | null>(null)
+  const seededId = useRef<string | null>(null)
 
+  // Seed local graph state once per workflow id (avoid clobbering in-flight edits on refetch)
   useEffect(() => {
-    if (!workflow) return
+    if (!workflow || seededId.current === workflow.id) return
+    seededId.current = workflow.id
     setName(workflow.name)
     setDescription(workflow.description ?? '')
     setNodes(
@@ -142,20 +145,23 @@ export default function WorkflowBuilder() {
 
   const onPointerDown = (e: React.PointerEvent, id: string) => {
     const node = nodes.find((n) => n.id === id)
-    if (!node) return
+    if (!node || !canvasRef.current) return
+    const rect = canvasRef.current.getBoundingClientRect()
     dragRef.current = {
       id,
-      ox: e.clientX - node.position_x,
-      oy: e.clientY - node.position_y,
+      ox: e.clientX - rect.left - node.position_x + canvasRef.current.scrollLeft,
+      oy: e.clientY - rect.top - node.position_y + canvasRef.current.scrollTop,
     }
     ;(e.target as HTMLElement).setPointerCapture?.(e.pointerId)
   }
 
   const onPointerMove = (e: React.PointerEvent) => {
     const drag = dragRef.current
-    if (!drag) return
-    const x = Math.max(0, e.clientX - drag.ox)
-    const y = Math.max(0, e.clientY - drag.oy)
+    const canvas = canvasRef.current
+    if (!drag || !canvas) return
+    const rect = canvas.getBoundingClientRect()
+    const x = Math.max(0, e.clientX - rect.left + canvas.scrollLeft - drag.ox)
+    const y = Math.max(0, e.clientY - rect.top + canvas.scrollTop - drag.oy)
     setNodes((prev) =>
       prev.map((n) => (n.id === drag.id ? { ...n, position_x: x, position_y: y } : n)),
     )
@@ -174,8 +180,8 @@ export default function WorkflowBuilder() {
     return `M ${x1} ${y1} C ${mx} ${y1}, ${mx} ${y2}, ${x2} ${y2}`
   }
 
-  const save = async () => {
-    if (!id) return
+  const save = async (): Promise<boolean> => {
+    if (!id) return false
     setSaving(true)
     setMessage(null)
     try {
@@ -195,8 +201,10 @@ export default function WorkflowBuilder() {
         },
       })
       setMessage('Saved')
+      return true
     } catch {
       setMessage('Save failed')
+      return false
     } finally {
       setSaving(false)
     }
@@ -204,12 +212,16 @@ export default function WorkflowBuilder() {
 
   const launch = async () => {
     if (!id) return
+    const ok = await save()
+    if (!ok) {
+      setMessage('Save failed — fix errors before launching')
+      return
+    }
     try {
-      await save()
       await launchWorkflow.mutateAsync(id)
       navigate('/workflows')
     } catch {
-      setMessage('Launch failed — save the workflow first')
+      setMessage('Launch failed')
     }
   }
 

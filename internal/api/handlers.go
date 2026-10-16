@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -70,6 +71,9 @@ func (d *Deps) handleGetOrganization(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid organization ID")
 		return
 	}
+	if !d.requireOrgAccess(w, r, id) {
+		return
+	}
 
 	org, err := d.Repos.Organizations.GetByID(r.Context(), id)
 	if err != nil {
@@ -109,6 +113,17 @@ func (d *Deps) handleGetUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Users are global records; only platform-admin may fetch arbitrary users.
+	// Org members can fetch themselves.
+	scope, ok := d.requireScope(w, r)
+	if !ok {
+		return
+	}
+	if !scope.IsPlatformAdmin && scope.UserID != id {
+		writeError(w, http.StatusNotFound, "NOT_FOUND", "User not found")
+		return
+	}
+
 	user, err := d.Repos.Users.GetByID(r.Context(), id)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "NOT_FOUND", "User not found")
@@ -120,6 +135,22 @@ func (d *Deps) handleGetUser(w http.ResponseWriter, r *http.Request) {
 
 func (d *Deps) handleListUsers(w http.ResponseWriter, r *http.Request) {
 	limit := parseLimit(r)
+
+	// Only platform-admin may list the global user directory.
+	scope, ok := d.requireScope(w, r)
+	if !ok {
+		return
+	}
+	if !scope.IsPlatformAdmin {
+		// Return only the caller themselves to avoid user-directory disclosure.
+		user, err := d.Repos.Users.GetByID(r.Context(), scope.UserID)
+		if err != nil {
+			writeJSON(w, http.StatusOK, map[string]any{"results": []domain.User{}, "has_more": false})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"results": []domain.User{*user}, "has_more": false})
+		return
+	}
 
 	users, err := d.Repos.Users.List(r.Context(), limit)
 	if err != nil {
@@ -137,6 +168,15 @@ func (d *Deps) handleListUsers(w http.ResponseWriter, r *http.Request) {
 }
 
 func (d *Deps) handleListTeamMembers(w http.ResponseWriter, r *http.Request) {
+	orgID, err := parseUUID(r.PathValue("orgId"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid organization ID")
+		return
+	}
+	if !d.requireOrgAccess(w, r, orgID) {
+		return
+	}
+
 	teamID, err := parseUUID(r.PathValue("teamId"))
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid team ID")
@@ -170,16 +210,20 @@ func (d *Deps) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "Fields 'name' and 'scm_url' are required")
 		return
 	}
+	if err := validateSCMURL(input.SCMURL); err != nil {
+		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", err.Error())
+		return
+	}
 
 	scope, ok := d.requireScope(w, r)
 	if !ok {
 		return
 	}
 
-	// Use provided org_id or fall back to auth context
-	orgID := scope.OrgIDs[0]
-	if input.OrganizationID != nil {
-		orgID = *input.OrganizationID
+	// Use provided org_id only if the caller may access it.
+	orgID, ok := resolveOrgID(w, scope, input.OrganizationID)
+	if !ok {
+		return
 	}
 
 	project, err := d.Repos.Projects.Create(r.Context(), input, orgID)
@@ -286,10 +330,13 @@ func parseLimit(r *http.Request) int {
 }
 
 func parseInt(s string) (int, error) {
+	if s == "" {
+		return 0, fmt.Errorf("empty number")
+	}
 	n := 0
 	for _, c := range s {
 		if c < '0' || c > '9' {
-			return 0, nil
+			return 0, fmt.Errorf("invalid number %q", s)
 		}
 		n = n*10 + int(c-'0')
 	}

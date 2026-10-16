@@ -4,6 +4,7 @@ package repository
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -619,23 +620,83 @@ func (r *RoleAssignmentRepo) EffectiveRoles(ctx context.Context, userID uuid.UUI
 
 type CredentialRepo struct {
 	pool *Pool
+	// crypto optionally encrypts secret input values at rest (AES-GCM).
+	crypto FieldCryptor
+}
+
+// FieldCryptor encrypts/decrypts secret field values.
+type FieldCryptor interface {
+	Encrypt(plaintext []byte) (string, error)
+	Decrypt(encoded string) ([]byte, error)
 }
 
 func NewCredentialRepo(pool *Pool) *CredentialRepo {
 	return &CredentialRepo{pool: pool}
 }
 
+// SetCrypto enables at-rest encryption for secret credential fields.
+func (r *CredentialRepo) SetCrypto(c FieldCryptor) {
+	r.crypto = c
+}
+
+// encryptSecretFields encrypts values of secret-looking keys before persistence.
+func (r *CredentialRepo) encryptSecretFields(inputs map[string]any) (map[string]any, error) {
+	if r.crypto == nil || inputs == nil {
+		return inputs, nil
+	}
+	out := make(map[string]any, len(inputs))
+	for k, v := range inputs {
+		if isSecretField(k) {
+			if s, ok := v.(string); ok && s != "" && s != "***" {
+				enc, err := r.crypto.Encrypt([]byte(s))
+				if err != nil {
+					return nil, err
+				}
+				out[k] = "enc:" + enc
+				continue
+			}
+		}
+		out[k] = v
+	}
+	return out, nil
+}
+
+// decryptSecretFields reverses encryptSecretFields.
+func (r *CredentialRepo) decryptSecretFields(inputs map[string]any) map[string]any {
+	if r.crypto == nil || inputs == nil {
+		return inputs
+	}
+	out := make(map[string]any, len(inputs))
+	for k, v := range inputs {
+		if isSecretField(k) {
+			if s, ok := v.(string); ok && strings.HasPrefix(s, "enc:") {
+				plain, err := r.crypto.Decrypt(strings.TrimPrefix(s, "enc:"))
+				if err == nil {
+					out[k] = string(plain)
+					continue
+				}
+			}
+		}
+		out[k] = v
+	}
+	return out
+}
+
 func (r *CredentialRepo) Create(ctx context.Context, input domain.CredentialCreate, orgID uuid.UUID) (*domain.Credential, error) {
+	stored, err := r.encryptSecretFields(input.Inputs)
+	if err != nil {
+		return nil, fmt.Errorf("encrypt credential inputs: %w", err)
+	}
 	cred := &domain.Credential{
 		ID:               uuid.New(),
 		Name:             input.Name,
 		OrganizationID:   orgID,
 		CredentialTypeID: input.CredentialTypeID,
-		Inputs:           input.Inputs,
+		Inputs:           stored,
 		CreatedAt:        time.Now(),
 		UpdatedAt:        time.Now(),
 	}
-	_, err := r.pool.Exec(ctx,
+	_, err = r.pool.Exec(ctx,
 		`INSERT INTO credentials (id, organization_id, name, credential_type_id, inputs, created_at, updated_at)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
 		cred.ID, cred.OrganizationID, cred.Name, cred.CredentialTypeID,
@@ -645,7 +706,7 @@ func (r *CredentialRepo) Create(ctx context.Context, input domain.CredentialCrea
 		return nil, fmt.Errorf("insert credential: %w", err)
 	}
 	// Redact secret values before returning
-	cred.Inputs = redactSecrets(cred.Inputs)
+	cred.Inputs = redactSecrets(r.decryptSecretFields(cred.Inputs))
 	return cred, nil
 }
 
@@ -659,7 +720,7 @@ func (r *CredentialRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.Cre
 	if err != nil {
 		return nil, err
 	}
-	cred.Inputs = redactSecrets(cred.Inputs)
+	cred.Inputs = redactSecrets(r.decryptSecretFields(cred.Inputs))
 	return cred, nil
 }
 
@@ -676,7 +737,7 @@ func (r *CredentialRepo) GetByIDScoped(ctx context.Context, id uuid.UUID, scope 
 	if err != nil {
 		return nil, err
 	}
-	cred.Inputs = redactSecrets(cred.Inputs)
+	cred.Inputs = redactSecrets(r.decryptSecretFields(cred.Inputs))
 	return cred, nil
 }
 
@@ -697,7 +758,7 @@ func (r *CredentialRepo) ListByOrg(ctx context.Context, orgID uuid.UUID) ([]doma
 			&cred.Inputs, &cred.CreatedAt, &cred.UpdatedAt); err != nil {
 			return nil, err
 		}
-		cred.Inputs = redactSecrets(cred.Inputs)
+		cred.Inputs = redactSecrets(r.decryptSecretFields(cred.Inputs))
 		creds = append(creds, cred)
 	}
 	return creds, nil
@@ -728,7 +789,7 @@ func (r *CredentialRepo) DeleteScoped(ctx context.Context, id uuid.UUID, scope d
 // ListTypes returns available credential type definitions.
 func (r *CredentialRepo) ListTypes(ctx context.Context) ([]domain.CredentialType, error) {
 	rows, err := r.pool.Query(ctx,
-		`SELECT id, name, namespace, inputs_schema FROM credential_types ORDER BY name`,
+		`SELECT id, name, namespace, inputs_schema, injectors FROM credential_types ORDER BY name`,
 	)
 	if err != nil {
 		return nil, err
@@ -738,12 +799,64 @@ func (r *CredentialRepo) ListTypes(ctx context.Context) ([]domain.CredentialType
 	var types []domain.CredentialType
 	for rows.Next() {
 		var t domain.CredentialType
-		if err := rows.Scan(&t.ID, &t.Name, &t.Namespace, &t.InputsSchema); err != nil {
+		if err := rows.Scan(&t.ID, &t.Name, &t.Namespace, &t.InputsSchema, &t.Injectors); err != nil {
 			return nil, err
 		}
 		types = append(types, t)
 	}
 	return types, rows.Err()
+}
+
+// CreateType inserts a custom credential type.
+func (r *CredentialRepo) CreateType(ctx context.Context, in domain.CredentialTypeCreate) (*domain.CredentialType, error) {
+	ns := in.Namespace
+	if ns == "" {
+		ns = "aiwx"
+	}
+	if in.InputsSchema == nil {
+		in.InputsSchema = map[string]any{}
+	}
+	if in.Injectors == nil {
+		in.Injectors = map[string]any{}
+	}
+	var t domain.CredentialType
+	err := r.pool.QueryRow(ctx, `
+		INSERT INTO credential_types (name, namespace, inputs_schema, injectors)
+		VALUES ($1, $2, $3, $4)
+		RETURNING id, name, namespace, inputs_schema, injectors
+	`, in.Name, ns, in.InputsSchema, in.Injectors).
+		Scan(&t.ID, &t.Name, &t.Namespace, &t.InputsSchema, &t.Injectors)
+	if err != nil {
+		return nil, err
+	}
+	return &t, nil
+}
+
+// UpdateType updates a credential type's schema/injectors.
+func (r *CredentialRepo) UpdateType(ctx context.Context, id uuid.UUID, in domain.CredentialTypeUpdate) (*domain.CredentialType, error) {
+	if in.Name != nil {
+		if _, err := r.pool.Exec(ctx, `UPDATE credential_types SET name=$2 WHERE id=$1`, id, *in.Name); err != nil {
+			return nil, err
+		}
+	}
+	if in.InputsSchema != nil {
+		if _, err := r.pool.Exec(ctx, `UPDATE credential_types SET inputs_schema=$2 WHERE id=$1`, id, in.InputsSchema); err != nil {
+			return nil, err
+		}
+	}
+	if in.Injectors != nil {
+		if _, err := r.pool.Exec(ctx, `UPDATE credential_types SET injectors=$2 WHERE id=$1`, id, in.Injectors); err != nil {
+			return nil, err
+		}
+	}
+	var t domain.CredentialType
+	err := r.pool.QueryRow(ctx,
+		`SELECT id, name, namespace, inputs_schema, injectors FROM credential_types WHERE id=$1`, id,
+	).Scan(&t.ID, &t.Name, &t.Namespace, &t.InputsSchema, &t.Injectors)
+	if err != nil {
+		return nil, err
+	}
+	return &t, nil
 }
 
 // redactSecrets replaces secret values with "***" for API responses.
@@ -763,9 +876,11 @@ func redactSecrets(inputs map[string]any) map[string]any {
 }
 
 func isSecretField(name string) bool {
-	secretFields := []string{"password", "token", "secret", "key", "ssh_key", "private_key", "access_key"}
-	for _, sf := range secretFields {
-		if len(name) >= len(sf) && name[len(name)-len(sf):] == sf {
+	// Case-insensitive substring / suffix match for common secret names.
+	n := strings.ToLower(name)
+	secretHints := []string{"password", "token", "secret", "key", "passphrase", "private", "credential", "signature", "cert"}
+	for _, sf := range secretHints {
+		if strings.Contains(n, sf) {
 			return true
 		}
 	}
@@ -1285,5 +1400,12 @@ func New(pool *Pool) *Repositories {
 		JobEvents:             NewJobEventRepo(pool),
 		JobLogs:               NewJobLogRepo(pool),
 		Workflows:             NewWorkflowRepo(pool),
+	}
+}
+
+// SetCredentialCrypto enables AES-GCM encryption for credential secret fields.
+func (r *Repositories) SetCredentialCrypto(c FieldCryptor) {
+	if r.Credentials != nil {
+		r.Credentials.SetCrypto(c)
 	}
 }

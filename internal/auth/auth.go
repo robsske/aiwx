@@ -100,7 +100,7 @@ func (v *JWTValidator) Validate(tokenString string) (*Identity, error) {
 			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
 		}
 		return v.secret, nil
-	})
+	}, jwt.WithIssuer(v.issuer), jwt.WithValidMethods([]string{"HS256", "HS384", "HS512"}))
 	if err != nil {
 		return nil, fmt.Errorf("invalid token: %w", err)
 	}

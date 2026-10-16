@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { api } from '../services/api'
 import { ErrorState } from '../components/ErrorState'
 import { RoleAssignments } from '../components/RoleAssignments'
@@ -42,7 +42,7 @@ function TeamsPanel({ orgId }: { orgId: string }) {
     }
   }
 
-  useState(() => { load() })
+  useEffect(() => { load() }, [])
 
   const handleCreate = async () => {
     try {
@@ -152,7 +152,7 @@ export default function Organizations() {
     }
   }
 
-  useState(() => { load() })
+  useEffect(() => { load() }, [])
 
   const handleCreate = async () => {
     try {

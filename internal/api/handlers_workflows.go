@@ -50,6 +50,17 @@ func (d *Deps) handleCreateWorkflowTemplate(w http.ResponseWriter, r *http.Reque
 	if !ok {
 		return
 	}
+	// Enforce tenant boundary on client-supplied org.
+	if input.OrganizationID != uuid.Nil && input.OrganizationID != orgID {
+		scope, ok := d.requireScope(w, r)
+		if !ok {
+			return
+		}
+		if !scope.AllowsOrg(input.OrganizationID) {
+			writeError(w, http.StatusNotFound, "NOT_FOUND", "Organization not found")
+			return
+		}
+	}
 	if input.OrganizationID == uuid.Nil {
 		input.OrganizationID = orgID
 	}

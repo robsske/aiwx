@@ -25,7 +25,18 @@ type Deps struct {
 	Checker     *rbac.Checker
 	SyncWorker  SyncRunner
 	Config      any
+	Encryptor   CredentialCryptor
+	AuthLimiter HTTPMiddleware
 }
+
+// CredentialCryptor encrypts/decrypts credential secrets at rest.
+type CredentialCryptor interface {
+	Encrypt(plaintext []byte) (string, error)
+	Decrypt(encoded string) ([]byte, error)
+}
+
+// HTTPMiddleware is a standard middleware function.
+type HTTPMiddleware func(http.Handler) http.Handler
 
 // SyncRunner abstracts project sync execution.
 type SyncRunner interface {
@@ -40,7 +51,13 @@ func NewRouter(deps Deps) http.Handler {
 	publicMux.HandleFunc("GET /readyz", handleReadyz(deps))
 	publicMux.Handle("GET /metrics", metrics.Handler())
 	publicMux.HandleFunc("GET /api/v1/", handleAPIRoot)
-	publicMux.HandleFunc("POST /api/v1/auth/token", deps.handleAuthToken)
+	// Rate-limit login to mitigate brute force
+	authHandler := http.HandlerFunc(deps.handleAuthToken)
+	if deps.AuthLimiter != nil {
+		publicMux.Handle("POST /api/v1/auth/token", deps.AuthLimiter(authHandler))
+	} else {
+		publicMux.Handle("POST /api/v1/auth/token", authHandler)
+	}
 
 	// Protected routes (auth required)
 	protectedMux := http.NewServeMux()
@@ -56,12 +73,16 @@ func NewRouter(deps Deps) http.Handler {
 
 	// Teams
 	protectedMux.HandleFunc("GET /api/v1/organizations/{orgId}/teams", deps.handleListTeams)
-	protectedMux.HandleFunc("POST /api/v1/organizations/{orgId}/teams", deps.handleCreateTeam)
+	protectedMux.Handle("POST /api/v1/organizations/{orgId}/teams",
+		wrapHandler(deps.handleCreateTeam, Require(deps.Checker, rbac.ActionCreate, rbac.ResourceTeam)))
 	protectedMux.HandleFunc("GET /api/v1/organizations/{orgId}/teams/{teamId}", deps.handleGetTeam)
-	protectedMux.HandleFunc("DELETE /api/v1/organizations/{orgId}/teams/{teamId}", deps.handleDeleteTeam)
+	protectedMux.Handle("DELETE /api/v1/organizations/{orgId}/teams/{teamId}",
+		wrapHandler(deps.handleDeleteTeam, Require(deps.Checker, rbac.ActionDelete, rbac.ResourceTeam)))
 	protectedMux.HandleFunc("GET /api/v1/organizations/{orgId}/teams/{teamId}/members", deps.handleListTeamMembers)
-	protectedMux.HandleFunc("POST /api/v1/organizations/{orgId}/teams/{teamId}/members", deps.handleAddTeamMember)
-	protectedMux.HandleFunc("DELETE /api/v1/organizations/{orgId}/teams/{teamId}/members/{userId}", deps.handleRemoveTeamMember)
+	protectedMux.Handle("POST /api/v1/organizations/{orgId}/teams/{teamId}/members",
+		wrapHandler(deps.handleAddTeamMember, Require(deps.Checker, rbac.ActionManage, rbac.ResourceTeam)))
+	protectedMux.Handle("DELETE /api/v1/organizations/{orgId}/teams/{teamId}/members/{userId}",
+		wrapHandler(deps.handleRemoveTeamMember, Require(deps.Checker, rbac.ActionManage, rbac.ResourceTeam)))
 
 	// Users — create is platform-admin only
 	protectedMux.HandleFunc("GET /api/v1/users", deps.handleListUsers)
@@ -79,53 +100,80 @@ func NewRouter(deps Deps) http.Handler {
 
 	// Projects
 	protectedMux.HandleFunc("GET /api/v1/projects", deps.handleListProjects)
-	protectedMux.HandleFunc("POST /api/v1/projects", deps.handleCreateProject)
+	protectedMux.Handle("POST /api/v1/projects",
+		wrapHandler(deps.handleCreateProject, Require(deps.Checker, rbac.ActionCreate, rbac.ResourceProject)))
 	protectedMux.HandleFunc("GET /api/v1/projects/{id}", deps.handleGetProject)
-	protectedMux.HandleFunc("PATCH /api/v1/projects/{id}", deps.handleUpdateProject)
-	protectedMux.HandleFunc("DELETE /api/v1/projects/{id}", deps.handleDeleteProject)
-	protectedMux.HandleFunc("POST /api/v1/projects/{id}/sync", deps.handleSyncProject)
+	protectedMux.Handle("PATCH /api/v1/projects/{id}",
+		wrapHandler(deps.handleUpdateProject, Require(deps.Checker, rbac.ActionUpdate, rbac.ResourceProject)))
+	protectedMux.Handle("DELETE /api/v1/projects/{id}",
+		wrapHandler(deps.handleDeleteProject, Require(deps.Checker, rbac.ActionDelete, rbac.ResourceProject)))
+	protectedMux.Handle("POST /api/v1/projects/{id}/sync",
+		wrapHandler(deps.handleSyncProject, Require(deps.Checker, rbac.ActionExecute, rbac.ResourceProject)))
 
 	// Credentials
 	protectedMux.HandleFunc("GET /api/v1/credential-types", deps.handleListCredentialTypes)
+	protectedMux.Handle("POST /api/v1/credential-types",
+		wrapHandler(deps.handleCreateCredentialType, Require(deps.Checker, rbac.ActionManage, rbac.ResourceCredential)))
+	protectedMux.Handle("PUT /api/v1/credential-types/{id}",
+		wrapHandler(deps.handleUpdateCredentialType, Require(deps.Checker, rbac.ActionManage, rbac.ResourceCredential)))
 	protectedMux.HandleFunc("GET /api/v1/credentials", deps.handleListCredentials)
-	protectedMux.HandleFunc("POST /api/v1/credentials", deps.handleCreateCredential)
+	protectedMux.Handle("POST /api/v1/credentials",
+		wrapHandler(deps.handleCreateCredential, Require(deps.Checker, rbac.ActionCreate, rbac.ResourceCredential)))
 	protectedMux.HandleFunc("GET /api/v1/credentials/{id}", deps.handleGetCredential)
-	protectedMux.HandleFunc("DELETE /api/v1/credentials/{id}", deps.handleDeleteCredential)
+	protectedMux.Handle("DELETE /api/v1/credentials/{id}",
+		wrapHandler(deps.handleDeleteCredential, Require(deps.Checker, rbac.ActionDelete, rbac.ResourceCredential)))
 
 	// Inventories
 	protectedMux.HandleFunc("GET /api/v1/inventories", deps.handleListInventories)
-	protectedMux.HandleFunc("POST /api/v1/inventories", deps.handleCreateInventory)
+	protectedMux.Handle("POST /api/v1/inventories",
+		wrapHandler(deps.handleCreateInventory, Require(deps.Checker, rbac.ActionCreate, rbac.ResourceInventory)))
 	protectedMux.HandleFunc("GET /api/v1/inventories/{id}", deps.handleGetInventory)
-	protectedMux.HandleFunc("DELETE /api/v1/inventories/{id}", deps.handleDeleteInventory)
+	protectedMux.Handle("DELETE /api/v1/inventories/{id}",
+		wrapHandler(deps.handleDeleteInventory, Require(deps.Checker, rbac.ActionDelete, rbac.ResourceInventory)))
 	protectedMux.HandleFunc("GET /api/v1/inventories/{id}/hosts", deps.handleListInventoryHosts)
-	protectedMux.HandleFunc("POST /api/v1/inventories/{id}/hosts", deps.handleCreateInventoryHost)
-	protectedMux.HandleFunc("DELETE /api/v1/inventories/{id}/hosts/{hostId}", deps.handleDeleteInventoryHost)
+	protectedMux.Handle("POST /api/v1/inventories/{id}/hosts",
+		wrapHandler(deps.handleCreateInventoryHost, Require(deps.Checker, rbac.ActionCreate, rbac.ResourceInventory)))
+	protectedMux.Handle("DELETE /api/v1/inventories/{id}/hosts/{hostId}",
+		wrapHandler(deps.handleDeleteInventoryHost, Require(deps.Checker, rbac.ActionDelete, rbac.ResourceInventory)))
 	protectedMux.HandleFunc("GET /api/v1/inventories/{id}/groups", deps.handleListInventoryGroups)
-	protectedMux.HandleFunc("POST /api/v1/inventories/{id}/groups", deps.handleCreateInventoryGroup)
-	protectedMux.HandleFunc("DELETE /api/v1/inventories/{id}/groups/{groupId}", deps.handleDeleteInventoryGroup)
-	protectedMux.HandleFunc("POST /api/v1/inventories/{id}/groups/{groupId}/hosts", deps.handleAddHostToGroup)
-	protectedMux.HandleFunc("DELETE /api/v1/inventories/{id}/groups/{groupId}/hosts/{hostId}", deps.handleRemoveHostFromGroup)
+	protectedMux.Handle("POST /api/v1/inventories/{id}/groups",
+		wrapHandler(deps.handleCreateInventoryGroup, Require(deps.Checker, rbac.ActionCreate, rbac.ResourceInventory)))
+	protectedMux.Handle("DELETE /api/v1/inventories/{id}/groups/{groupId}",
+		wrapHandler(deps.handleDeleteInventoryGroup, Require(deps.Checker, rbac.ActionDelete, rbac.ResourceInventory)))
+	protectedMux.Handle("POST /api/v1/inventories/{id}/groups/{groupId}/hosts",
+		wrapHandler(deps.handleAddHostToGroup, Require(deps.Checker, rbac.ActionUpdate, rbac.ResourceInventory)))
+	protectedMux.Handle("DELETE /api/v1/inventories/{id}/groups/{groupId}/hosts/{hostId}",
+		wrapHandler(deps.handleRemoveHostFromGroup, Require(deps.Checker, rbac.ActionUpdate, rbac.ResourceInventory)))
 
 	// Execution Environments
 	protectedMux.HandleFunc("GET /api/v1/execution-environments", deps.handleListExecutionEnvironments)
-	protectedMux.HandleFunc("POST /api/v1/execution-environments", deps.handleCreateExecutionEnvironment)
+	protectedMux.Handle("POST /api/v1/execution-environments",
+		wrapHandler(deps.handleCreateExecutionEnvironment, Require(deps.Checker, rbac.ActionCreate, rbac.ResourceExecutionEnvironment)))
 	protectedMux.HandleFunc("GET /api/v1/execution-environments/{id}", deps.handleGetExecutionEnvironment)
-	protectedMux.HandleFunc("DELETE /api/v1/execution-environments/{id}", deps.handleDeleteExecutionEnvironment)
+	protectedMux.Handle("DELETE /api/v1/execution-environments/{id}",
+		wrapHandler(deps.handleDeleteExecutionEnvironment, Require(deps.Checker, rbac.ActionDelete, rbac.ResourceExecutionEnvironment)))
 
 	// Job Templates
 	protectedMux.HandleFunc("GET /api/v1/job-templates", deps.handleListJobTemplates)
-	protectedMux.HandleFunc("POST /api/v1/job-templates", deps.handleCreateJobTemplate)
+	protectedMux.Handle("POST /api/v1/job-templates",
+		wrapHandler(deps.handleCreateJobTemplate, Require(deps.Checker, rbac.ActionCreate, rbac.ResourceJobTemplate)))
 	protectedMux.HandleFunc("GET /api/v1/job-templates/{id}", deps.handleGetJobTemplate)
-	protectedMux.HandleFunc("DELETE /api/v1/job-templates/{id}", deps.handleDeleteJobTemplate)
-	protectedMux.HandleFunc("POST /api/v1/job-templates/{id}/launch", deps.handleLaunchJob)
+	protectedMux.Handle("DELETE /api/v1/job-templates/{id}",
+		wrapHandler(deps.handleDeleteJobTemplate, Require(deps.Checker, rbac.ActionDelete, rbac.ResourceJobTemplate)))
+	protectedMux.Handle("POST /api/v1/job-templates/{id}/launch",
+		wrapHandler(deps.handleLaunchJob, Require(deps.Checker, rbac.ActionExecute, rbac.ResourceJob)))
 
 	// Workflows (AWX-style workflow job templates)
 	protectedMux.HandleFunc("GET /api/v1/workflow-templates", deps.handleListWorkflowTemplates)
-	protectedMux.HandleFunc("POST /api/v1/workflow-templates", deps.handleCreateWorkflowTemplate)
+	protectedMux.Handle("POST /api/v1/workflow-templates",
+		wrapHandler(deps.handleCreateWorkflowTemplate, Require(deps.Checker, rbac.ActionCreate, rbac.ResourceJobTemplate)))
 	protectedMux.HandleFunc("GET /api/v1/workflow-templates/{id}", deps.handleGetWorkflowTemplate)
-	protectedMux.HandleFunc("PUT /api/v1/workflow-templates/{id}", deps.handleUpdateWorkflowTemplate)
-	protectedMux.HandleFunc("DELETE /api/v1/workflow-templates/{id}", deps.handleDeleteWorkflowTemplate)
-	protectedMux.HandleFunc("POST /api/v1/workflow-templates/{id}/launch", deps.handleLaunchWorkflow)
+	protectedMux.Handle("PUT /api/v1/workflow-templates/{id}",
+		wrapHandler(deps.handleUpdateWorkflowTemplate, Require(deps.Checker, rbac.ActionUpdate, rbac.ResourceJobTemplate)))
+	protectedMux.Handle("DELETE /api/v1/workflow-templates/{id}",
+		wrapHandler(deps.handleDeleteWorkflowTemplate, Require(deps.Checker, rbac.ActionDelete, rbac.ResourceJobTemplate)))
+	protectedMux.Handle("POST /api/v1/workflow-templates/{id}/launch",
+		wrapHandler(deps.handleLaunchWorkflow, Require(deps.Checker, rbac.ActionExecute, rbac.ResourceJob)))
 	protectedMux.HandleFunc("GET /api/v1/workflow-jobs", deps.handleListWorkflowJobs)
 	protectedMux.HandleFunc("GET /api/v1/workflow-jobs/{id}", deps.handleGetWorkflowJob)
 
@@ -134,7 +182,8 @@ func NewRouter(deps Deps) http.Handler {
 	protectedMux.HandleFunc("GET /api/v1/jobs/{id}", deps.handleGetJob)
 	protectedMux.HandleFunc("GET /api/v1/jobs/{id}/events", deps.handleGetJobEvents)
 	protectedMux.HandleFunc("GET /api/v1/jobs/{id}/logs", deps.handleGetJobLogs)
-	protectedMux.HandleFunc("POST /api/v1/jobs/{id}/cancel", deps.handleCancelJob)
+	protectedMux.Handle("POST /api/v1/jobs/{id}/cancel",
+		wrapHandler(deps.handleCancelJob, Require(deps.Checker, rbac.ActionExecute, rbac.ResourceJob)))
 
 	// Streaming (SSE)
 	protectedMux.HandleFunc("GET /api/v1/jobs/{id}/stream", deps.handleJobStream)

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useInventories, useOrganizations, useCreateInventory } from '../hooks/useApi'
 import { api } from '../services/api'
 import { ErrorState } from '../components/ErrorState'
@@ -52,12 +52,19 @@ function InventoryDetail({ inventoryId, onClose }: { inventoryId: string; onClos
     }
   }
 
-  useState(() => { load() })
+  useEffect(() => { load() }, [inventoryId])
 
   const handleAddHost = async () => {
     try {
       let vars = {}
-      if (hostVars.trim()) vars = JSON.parse(hostVars)
+      if (hostVars.trim()) {
+        const parsed: unknown = JSON.parse(hostVars)
+        if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+          setError('Variables must be a JSON object')
+          return
+        }
+        vars = parsed as Record<string, unknown>
+      }
       await api.createInventoryHost(inventoryId, {
         name: hostName,
         description: hostDesc,

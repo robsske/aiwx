@@ -23,8 +23,12 @@ export default function Login() {
     try {
       await login(username, password)
       navigate('/')
-    } catch {
-      setError('Invalid credentials')
+    } catch (err) {
+      const msg =
+        err && typeof err === 'object' && 'response' in err
+          ? (err as { response?: { data?: { message?: string } } }).response?.data?.message
+          : undefined
+      setError(msg || 'Invalid credentials')
     } finally {
       setLoading(false)
     }

@@ -117,10 +117,26 @@ type ProjectCreate struct {
 // ─── Credential ───────────────────────────────────────────────────────────────
 
 type CredentialType struct {
-	ID           uuid.UUID `json:"id"`
-	Name         string    `json:"name"`
-	Namespace    string    `json:"namespace"`
+	ID           uuid.UUID      `json:"id"`
+	Name         string         `json:"name"`
+	Namespace    string         `json:"namespace"`
 	InputsSchema map[string]any `json:"inputs_schema"`
+	// Injectors maps credential fields into job runtime (AWX-style):
+	// extra_vars / env / file
+	Injectors map[string]any `json:"injectors"`
+}
+
+type CredentialTypeCreate struct {
+	Name         string         `json:"name"`
+	Namespace    string         `json:"namespace,omitempty"`
+	InputsSchema map[string]any `json:"inputs_schema,omitempty"`
+	Injectors    map[string]any `json:"injectors,omitempty"`
+}
+
+type CredentialTypeUpdate struct {
+	Name         *string        `json:"name,omitempty"`
+	InputsSchema map[string]any `json:"inputs_schema,omitempty"`
+	Injectors    map[string]any `json:"injectors,omitempty"`
 }
 
 type Credential struct {

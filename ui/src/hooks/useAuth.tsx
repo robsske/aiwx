@@ -17,6 +17,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true)
 
   useEffect(() => {
+    const onUnauthorized = () => setUser(null)
+    window.addEventListener('aiwx:unauthorized', onUnauthorized)
+    return () => window.removeEventListener('aiwx:unauthorized', onUnauthorized)
+  }, [])
+
+  useEffect(() => {
     const token = localStorage.getItem('aiwx_token')
     if (!token) {
       setIsLoading(false)
@@ -26,6 +32,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .then(setUser)
       .catch(() => {
         localStorage.removeItem('aiwx_token')
+        setUser(null)
       })
       .finally(() => setIsLoading(false))
   }, [])

@@ -81,6 +81,7 @@ export interface CredentialType {
   name: string
   namespace: string
   inputs_schema: Record<string, any>
+  injectors?: Record<string, any>
 }
 
 export interface Credential {

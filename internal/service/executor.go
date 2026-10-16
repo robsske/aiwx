@@ -3,10 +3,13 @@ package service
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -63,10 +66,13 @@ func (r *LocalRunner) Run(ctx context.Context, job *domain.Job, spec *JobSpec) (
 	// If workDir contains a tar.gz, extract it
 	workDir = r.extractArtifactIfNeeded(workDir, job.ID)
 
-	// Build ansible-playbook command
-	playbookPath := spec.Playbook
-	if !filepath.IsAbs(playbookPath) {
-		playbookPath = filepath.Join(workDir, spec.Playbook)
+	// Build ansible-playbook command — path must stay under workDir
+	playbookPath, err := safeJoin(workDir, spec.Playbook)
+	if err != nil {
+		return &JobResult{
+			ExitCode: 1,
+			Stderr:   fmt.Sprintf("Invalid playbook path: %v\n", err),
+		}, nil
 	}
 
 	// Verify playbook exists
@@ -86,9 +92,14 @@ func (r *LocalRunner) Run(ctx context.Context, job *domain.Job, spec *JobSpec) (
 		args = append(args, "-i", "localhost,")
 		args = append(args, "-c", "local")
 	} else {
-		if !filepath.IsAbs(inventoryPath) {
-			inventoryPath = filepath.Join(workDir, inventoryPath)
+		inv, err := safeJoin(workDir, inventoryPath)
+		if err != nil {
+			return &JobResult{
+				ExitCode: 1,
+				Stderr:   fmt.Sprintf("Invalid inventory path: %v\n", err),
+			}, nil
 		}
+		inventoryPath = inv
 		args = append(args, "-i", inventoryPath)
 	}
 
@@ -135,7 +146,7 @@ func (r *LocalRunner) Run(ctx context.Context, job *domain.Job, spec *JobSpec) (
 	cmd.Stderr = &stderr
 
 	start := time.Now()
-	err := cmd.Run()
+	err = cmd.Run()
 	duration := time.Since(start)
 
 	result := &JobResult{
@@ -192,16 +203,45 @@ func (r *LocalRunner) extractArtifactIfNeeded(artifactDir string, jobID uuid.UUI
 			tarPath := filepath.Join(artifactDir, entry.Name())
 			extractDir := filepath.Join(artifactDir, "extracted")
 
-			// Extract using tar
-			cmd := exec.Command("tar", "-xzf", tarPath, "-C", extractDir)
+			// Extract with path containment (mitigate tar slip)
 			os.MkdirAll(extractDir, 0755)
-			if err := cmd.Run(); err == nil {
+			if err := extractTarSafe(tarPath, extractDir); err == nil {
 				return extractDir
 			}
 		}
 	}
 
 	return artifactDir
+}
+
+// extractTarSafe extracts a gzip tarball while rejecting path-traversal members.
+func extractTarSafe(tarPath, dest string) error {
+	cmd := exec.Command("tar", "-tzf", tarPath)
+	out, err := cmd.Output()
+	if err != nil {
+		return err
+	}
+	destAbs, err := filepath.Abs(dest)
+	if err != nil {
+		return err
+	}
+	for _, line := range strings.Split(string(out), "\n") {
+		name := strings.TrimSpace(line)
+		if name == "" {
+			continue
+		}
+		clean := filepath.Clean(name)
+		if filepath.IsAbs(clean) || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
+			return fmt.Errorf("tar member escapes destination: %s", name)
+		}
+		// Also reject members that would land outside dest after join
+		target := filepath.Join(destAbs, clean)
+		if target != destAbs && !strings.HasPrefix(target, destAbs+string(filepath.Separator)) {
+			return fmt.Errorf("tar member escapes destination: %s", name)
+		}
+	}
+	extract := exec.Command("tar", "-xzf", tarPath, "-C", dest)
+	return extract.Run()
 }
 
 // resolveProjectDir finds the synced project artifact directory for a job.
@@ -240,19 +280,71 @@ func (r *LocalRunner) mockRun(ctx context.Context, job *domain.Job, spec *JobSpe
 }
 
 // mapToYAML converts a map to a YAML string for --extra-vars.
+// safeJoin joins a relative path under base and rejects traversal / absolute escapes.
+func safeJoin(base, rel string) (string, error) {
+	if rel == "" {
+		return "", fmt.Errorf("empty path")
+	}
+	// Disallow absolute paths and parent references.
+	cleaned := filepath.Clean(rel)
+	if filepath.IsAbs(cleaned) || cleaned == ".." || strings.HasPrefix(cleaned, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("path must be relative and stay under the project directory")
+	}
+	full := filepath.Join(base, cleaned)
+	absBase, err := filepath.Abs(base)
+	if err != nil {
+		return "", err
+	}
+	absFull, err := filepath.Abs(full)
+	if err != nil {
+		return "", err
+	}
+	if absFull != absBase && !strings.HasPrefix(absFull, absBase+string(filepath.Separator)) {
+		return "", fmt.Errorf("path escapes project directory")
+	}
+	return full, nil
+}
+
+// mapToYAML serializes extra vars safely (no injection via quotes/newlines).
 func mapToYAML(m map[string]any) string {
+	// Use encoding/json-compatible YAML via json.Marshal then convert — safest is yaml.v3,
+	// but avoid new deps: JSON is valid YAML for simple scalars/maps.
+	// Prefer a proper marshal: use yaml from stdlib-free approach with strconv.Quote for strings.
 	var sb strings.Builder
-	for k, v := range m {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		v := m[k]
 		switch val := v.(type) {
 		case string:
-			sb.WriteString(fmt.Sprintf("%s: \"%s\"\n", k, val))
+			sb.WriteString(fmt.Sprintf("%s: %s\n", yamlKey(k), strconv.Quote(val)))
 		case int, int64, float64:
-			sb.WriteString(fmt.Sprintf("%s: %v\n", k, val))
+			sb.WriteString(fmt.Sprintf("%s: %v\n", yamlKey(k), val))
 		case bool:
-			sb.WriteString(fmt.Sprintf("%s: %v\n", k, val))
+			sb.WriteString(fmt.Sprintf("%s: %v\n", yamlKey(k), val))
 		default:
-			sb.WriteString(fmt.Sprintf("%s: %v\n", k, val))
+			// Nested values: JSON is YAML-compatible
+			b, err := json.Marshal(val)
+			if err != nil {
+				sb.WriteString(fmt.Sprintf("%s: null\n", yamlKey(k)))
+				continue
+			}
+			sb.WriteString(fmt.Sprintf("%s: %s\n", yamlKey(k), b))
 		}
 	}
 	return sb.String()
+}
+
+func yamlKey(k string) string {
+	if k == "" {
+		return `""`
+	}
+	// Quote keys that need it
+	if strings.ContainsAny(k, ":#{}[],&*?|-<>=!%@`\"' \t\n") {
+		return strconv.Quote(k)
+	}
+	return k
 }

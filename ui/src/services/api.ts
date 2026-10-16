@@ -34,9 +34,8 @@ class ApiClient {
         const isLoginRequest = error.config?.url?.includes('/auth/token')
         if (error.response?.status === 401 && !isLoginRequest) {
           localStorage.removeItem('aiwx_token')
-          // Use pushState instead of full reload to preserve SPA state
-          window.history.pushState({}, '', '/login')
-          window.dispatchEvent(new PopStateEvent('popstate'))
+          // Notify AuthProvider so React state clears (avoids soft-lock on /login)
+          window.dispatchEvent(new CustomEvent('aiwx:unauthorized'))
         }
         return Promise.reject(error)
       },
@@ -61,7 +60,7 @@ class ApiClient {
 
   // ─── Organizations ─────────────────────────────────────────────────────────
 
-  async listOrganizations(cursor?: string, limit = 50): Promise<PaginatedResponse<Organization>> {
+  async listOrganizations(cursor?: string, limit = 200): Promise<PaginatedResponse<Organization>> {
     const response = await this.client.get('/organizations', {
       params: { cursor, limit },
     })
@@ -142,7 +141,7 @@ class ApiClient {
 
   // ─── Projects ──────────────────────────────────────────────────────────────
 
-  async listProjects(cursor?: string, limit = 50): Promise<PaginatedResponse<Project>> {
+  async listProjects(cursor?: string, limit = 200): Promise<PaginatedResponse<Project>> {
     const response = await this.client.get('/projects', {
       params: { cursor, limit },
     })
@@ -174,7 +173,7 @@ class ApiClient {
 
   // ─── Jobs ──────────────────────────────────────────────────────────────────
 
-  async listJobs(cursor?: string, limit = 50): Promise<PaginatedResponse<Job>> {
+  async listJobs(cursor?: string, limit = 200): Promise<PaginatedResponse<Job>> {
     const response = await this.client.get('/jobs', {
       params: { cursor, limit },
     })
@@ -202,7 +201,7 @@ class ApiClient {
 
   // ─── Credentials ───────────────────────────────────────────────────────────
 
-  async listCredentials(cursor?: string, limit = 50): Promise<PaginatedResponse<Credential>> {
+  async listCredentials(cursor?: string, limit = 200): Promise<PaginatedResponse<Credential>> {
     const response = await this.client.get('/credentials', {
       params: { cursor, limit },
     })
@@ -228,9 +227,31 @@ class ApiClient {
     return response.data.results ?? []
   }
 
+  async createCredentialType(data: {
+    name: string
+    namespace?: string
+    inputs_schema?: Record<string, any>
+    injectors?: Record<string, any>
+  }): Promise<CredentialType> {
+    const response = await this.client.post('/credential-types', data)
+    return response.data
+  }
+
+  async updateCredentialType(
+    id: string,
+    data: {
+      name?: string
+      inputs_schema?: Record<string, any>
+      injectors?: Record<string, any>
+    },
+  ): Promise<CredentialType> {
+    const response = await this.client.put(`/credential-types/${id}`, data)
+    return response.data
+  }
+
   // ─── Inventories ───────────────────────────────────────────────────────────
 
-  async listInventories(cursor?: string, limit = 50): Promise<PaginatedResponse<Inventory>> {
+  async listInventories(cursor?: string, limit = 200): Promise<PaginatedResponse<Inventory>> {
     const response = await this.client.get('/inventories', {
       params: { cursor, limit },
     })
@@ -281,7 +302,7 @@ class ApiClient {
 
   // ─── Job Templates ─────────────────────────────────────────────────────────
 
-  async listJobTemplates(cursor?: string, limit = 50): Promise<PaginatedResponse<JobTemplate>> {
+  async listJobTemplates(cursor?: string, limit = 200): Promise<PaginatedResponse<JobTemplate>> {
     const response = await this.client.get('/job-templates', {
       params: { cursor, limit },
     })

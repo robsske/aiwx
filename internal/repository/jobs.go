@@ -383,11 +383,13 @@ func (r *JobRepo) GetByIDScoped(ctx context.Context, id uuid.UUID, scope domain.
 
 func (r *JobRepo) UpdateStatus(ctx context.Context, id uuid.UUID, status domain.JobStatus, reason string) error {
 	now := time.Now()
+	// Do not overwrite terminal states (e.g. canceled) with worker results.
 	_, err := r.pool.Exec(ctx,
 		`UPDATE jobs SET status = $2, updated_at = $3,
 		        started_at = CASE WHEN $2 = 'running' AND started_at IS NULL THEN $3 ELSE started_at END,
 		        finished_at = CASE WHEN $2 IN ('successful', 'failed', 'error', 'canceled') THEN $3 ELSE finished_at END
-		 WHERE id = $1`,
+		 WHERE id = $1
+		   AND status NOT IN ('successful', 'failed', 'error', 'canceled')`,
 		id, status, now,
 	)
 	return err

@@ -44,8 +44,16 @@ func (d *Deps) handleAuthToken(w http.ResponseWriter, r *http.Request) {
 	}
 
 	effectiveRoles, err := d.Repos.RoleAssignments.ListRolesForUser(r.Context(), cred.User.ID)
-	if err != nil || len(effectiveRoles) == 0 {
-		effectiveRoles = []domain.EffectiveRole{{Role: domain.RolePlatformAdmin}}
+	if err != nil {
+		d.Logger.Error("load roles for login", "error", err, "user_id", cred.User.ID)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to load user roles")
+		return
+	}
+	// Fail closed: never grant a token to a user with no role assignments.
+	// (Previously this defaulted to platform-admin — privilege escalation.)
+	if len(effectiveRoles) == 0 {
+		writeError(w, http.StatusForbidden, "FORBIDDEN", "Account has no role assignments")
+		return
 	}
 
 	// Build roles list and pick primary org for the token.
@@ -102,6 +110,9 @@ func (d *Deps) handleListTeams(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid organization ID")
 		return
 	}
+	if !d.requireOrgAccess(w, r, orgID) {
+		return
+	}
 
 	teams, err := d.Repos.Teams.ListByOrg(r.Context(), orgID)
 	if err != nil {
@@ -119,6 +130,9 @@ func (d *Deps) handleCreateTeam(w http.ResponseWriter, r *http.Request) {
 	orgID, err := parseUUID(r.PathValue("orgId"))
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid organization ID")
+		return
+	}
+	if !d.requireOrgAccess(w, r, orgID) {
 		return
 	}
 
@@ -330,6 +344,45 @@ func (d *Deps) handleListCredentialTypes(w http.ResponseWriter, r *http.Request)
 	})
 }
 
+func (d *Deps) handleCreateCredentialType(w http.ResponseWriter, r *http.Request) {
+	var input domain.CredentialTypeCreate
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid request body")
+		return
+	}
+	if input.Name == "" {
+		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "Field 'name' is required")
+		return
+	}
+	t, err := d.Repos.Credentials.CreateType(r.Context(), input)
+	if err != nil {
+		d.Logger.Error("create credential type failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to create credential type")
+		return
+	}
+	writeJSON(w, http.StatusCreated, t)
+}
+
+func (d *Deps) handleUpdateCredentialType(w http.ResponseWriter, r *http.Request) {
+	id, err := parseUUID(r.PathValue("id"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid credential type ID")
+		return
+	}
+	var input domain.CredentialTypeUpdate
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid request body")
+		return
+	}
+	t, err := d.Repos.Credentials.UpdateType(r.Context(), id, input)
+	if err != nil {
+		d.Logger.Error("update credential type failed", "error", err, "id", id)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to update credential type")
+		return
+	}
+	writeJSON(w, http.StatusOK, t)
+}
+
 func (d *Deps) handleListCredentials(w http.ResponseWriter, r *http.Request) {
 	orgID, ok := requireOrgID(w, r)
 	if !ok {
@@ -516,6 +569,9 @@ func (d *Deps) handleListInventoryHosts(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid inventory ID")
 		return
 	}
+	if !d.requireInventoryAccess(w, r, invID) {
+		return
+	}
 
 	hosts, err := d.Repos.Inventories.ListHosts(r.Context(), invID)
 	if err != nil {
@@ -536,6 +592,9 @@ func (d *Deps) handleCreateInventoryHost(w http.ResponseWriter, r *http.Request)
 	invID, err := parseUUID(r.PathValue("id"))
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid inventory ID")
+		return
+	}
+	if !d.requireInventoryAccess(w, r, invID) {
 		return
 	}
 
@@ -564,6 +623,10 @@ func (d *Deps) handleDeleteInventoryHost(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid inventory ID")
 		return
 	}
+	if !d.requireInventoryAccess(w, r, invID) {
+		return
+	}
+
 	hostID, err := parseUUID(r.PathValue("hostId"))
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid host ID")
@@ -586,6 +649,9 @@ func (d *Deps) handleListInventoryGroups(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid inventory ID")
 		return
 	}
+	if !d.requireInventoryAccess(w, r, invID) {
+		return
+	}
 
 	groups, err := d.Repos.Inventories.ListGroups(r.Context(), invID)
 	if err != nil {
@@ -606,6 +672,9 @@ func (d *Deps) handleCreateInventoryGroup(w http.ResponseWriter, r *http.Request
 	invID, err := parseUUID(r.PathValue("id"))
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid inventory ID")
+		return
+	}
+	if !d.requireInventoryAccess(w, r, invID) {
 		return
 	}
 
@@ -634,6 +703,10 @@ func (d *Deps) handleDeleteInventoryGroup(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid inventory ID")
 		return
 	}
+	if !d.requireInventoryAccess(w, r, invID) {
+		return
+	}
+
 	groupID, err := parseUUID(r.PathValue("groupId"))
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid group ID")
@@ -649,8 +722,12 @@ func (d *Deps) handleDeleteInventoryGroup(w http.ResponseWriter, r *http.Request
 }
 
 func (d *Deps) handleAddHostToGroup(w http.ResponseWriter, r *http.Request) {
-	if _, err := parseUUID(r.PathValue("id")); err != nil {
+	invID, err := parseUUID(r.PathValue("id"))
+	if err != nil {
 		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid inventory ID")
+		return
+	}
+	if !d.requireInventoryAccess(w, r, invID) {
 		return
 	}
 	groupID, err := parseUUID(r.PathValue("groupId"))
@@ -676,8 +753,12 @@ func (d *Deps) handleAddHostToGroup(w http.ResponseWriter, r *http.Request) {
 }
 
 func (d *Deps) handleRemoveHostFromGroup(w http.ResponseWriter, r *http.Request) {
-	if _, err := parseUUID(r.PathValue("id")); err != nil {
+	invID, err := parseUUID(r.PathValue("id"))
+	if err != nil {
 		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid inventory ID")
+		return
+	}
+	if !d.requireInventoryAccess(w, r, invID) {
 		return
 	}
 	groupID, err := parseUUID(r.PathValue("groupId"))
@@ -818,6 +899,12 @@ func (d *Deps) handleUpdateProject(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
 		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid request body")
 		return
+	}
+	if input.SCMURL != "" {
+		if err := validateSCMURL(input.SCMURL); err != nil {
+			writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", err.Error())
+			return
+		}
 	}
 
 	scope, ok := d.requireScope(w, r)
