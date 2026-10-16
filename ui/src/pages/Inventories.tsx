@@ -9,6 +9,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
+import { ListToolbar, ListPagination, useListControls } from '@/hooks/useListControls'
 import type { InventoryHost, InventoryGroup } from '../types'
 
 function extractErrorMessage(err: unknown): string {
@@ -280,6 +281,14 @@ export default function Inventories() {
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [formError, setFormError] = useState<string | null>(null)
 
+  const list = useListControls(inventories?.results, {
+    getText: (inv) =>
+      `${inv.name} ${inv.description ?? ''} ${
+        orgs?.results?.find((o) => o.id === inv.organization_id)?.name ?? ''
+      }`,
+    pageSize: 10,
+  })
+
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault()
     setFormError(null)
@@ -348,40 +357,66 @@ export default function Inventories() {
       ) : isError ? (
         <ErrorState message="Failed to load inventories" onRetry={() => refetch()} />
       ) : (
-        <Card>
-          <CardContent className="p-0">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Name</TableHead>
-                  <TableHead>Organization</TableHead>
-                  <TableHead>Description</TableHead>
-                  <TableHead>Hosts</TableHead>
-                  <TableHead>Groups</TableHead>
-                  <TableHead>Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {inventories?.results?.map(inv => (
-                  <TableRow key={inv.id}>
-                    <TableCell>{inv.name}</TableCell>
-                    <TableCell>
-                      {orgs?.results?.find(o => o.id === inv.organization_id)?.name ?? inv.organization_id.slice(0, 8)}
-                    </TableCell>
-                    <TableCell>{inv.description || '—'}</TableCell>
-                    <TableCell>{inv.host_count}</TableCell>
-                    <TableCell>{inv.group_count}</TableCell>
-                    <TableCell>
-                      <Button variant="outline" size="sm" onClick={() => setSelectedId(inv.id)}>
-                        Manage
-                      </Button>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
+        <>
+          <ListToolbar
+            query={list.query}
+            onQueryChange={list.setQuery}
+            placeholder="Search inventories..."
+          />
+          {!list.pageItems.length ? (
+            <Card>
+              <CardContent>
+                <EmptyState
+                  message={list.query ? 'No inventories match your search.' : 'No inventories yet.'}
+                />
+              </CardContent>
+            </Card>
+          ) : (
+            <Card>
+              <CardContent className="p-0">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Name</TableHead>
+                      <TableHead>Organization</TableHead>
+                      <TableHead>Description</TableHead>
+                      <TableHead>Hosts</TableHead>
+                      <TableHead>Groups</TableHead>
+                      <TableHead>Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {list.pageItems.map(inv => (
+                      <TableRow key={inv.id}>
+                        <TableCell>{inv.name}</TableCell>
+                        <TableCell>
+                          {orgs?.results?.find(o => o.id === inv.organization_id)?.name ?? inv.organization_id.slice(0, 8)}
+                        </TableCell>
+                        <TableCell>{inv.description || '—'}</TableCell>
+                        <TableCell>{inv.host_count}</TableCell>
+                        <TableCell>{inv.group_count}</TableCell>
+                        <TableCell>
+                          <Button variant="outline" size="sm" onClick={() => setSelectedId(inv.id)}>
+                            Manage
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+          )}
+          <ListPagination
+            page={list.page}
+            totalPages={list.totalPages}
+            pageSize={list.pageSize}
+            total={list.total}
+            rangeLabel={list.rangeLabel}
+            onPageChange={list.setPage}
+            onPageSizeChange={list.setPageSize}
+          />
+        </>
       )}
     </div>
   )

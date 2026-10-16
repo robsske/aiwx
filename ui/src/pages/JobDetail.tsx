@@ -1,11 +1,12 @@
 import { useParams, useNavigate, Link } from 'react-router-dom'
-import { useJob, useJobEvents, useJobLogs, useCancelJob } from '../hooks/useApi'
+import { useJob, useJobEvents, useJobLogs, useCancelJob, useJobTemplates } from '../hooks/useApi'
 import { ErrorState } from '../components/ErrorState'
 import { PageHeader, StatusBadge, EmptyState, LoadingState, Mono } from '../components/Page'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { jobDisplayName } from '../types'
 
 function EventRow({ event }: { event: { id: number; event_type: string; event_data: Record<string, unknown>; created_at: string } }) {
   const data = event.event_data ?? {}
@@ -46,9 +47,14 @@ export default function JobDetail() {
   const { data: job, isLoading, isError, refetch } = useJob(id!)
   const { data: events, isError: eventsError } = useJobEvents(id!)
   const { data: logs, isError: logsError } = useJobLogs(id!)
+  const { data: templates } = useJobTemplates()
   const cancelJob = useCancelJob()
 
   const isTerminal = job && ['successful', 'failed', 'error', 'canceled'].includes(job.status)
+  const jobName = job ? jobDisplayName(job, templates?.results) : ''
+  const template = job?.job_template_id
+    ? templates?.results?.find((t) => t.id === job.job_template_id)
+    : undefined
 
   if (isLoading) {
     return <LoadingState />
@@ -65,7 +71,7 @@ export default function JobDetail() {
   return (
     <div>
       <PageHeader
-        title={`Job ${job.id.slice(0, 8)}`}
+        title={jobName}
         actions={
           <>
             {!isTerminal && (
@@ -97,24 +103,40 @@ export default function JobDetail() {
               </dd>
             </div>
             <div>
+              <dt className="text-xs font-medium text-muted-foreground">Job ID</dt>
+              <dd className="mt-1">
+                <Mono>{job.id}</Mono>
+              </dd>
+            </div>
+            <div>
               <dt className="text-xs font-medium text-muted-foreground">Exit Code</dt>
               <dd className="mt-1">{job.exit_code ?? '—'}</dd>
             </div>
             <div>
-              <dt className="text-xs font-medium text-muted-foreground">Template</dt>
+              <dt className="text-xs font-medium text-muted-foreground">
+                {job.job_template_id ? 'Job Template' : 'Source'}
+              </dt>
               <dd className="mt-1">
                 {job.job_template_id ? (
                   <Link
                     to={`/job-templates`}
-                    className="font-mono text-xs text-primary hover:underline"
+                    className="text-sm font-medium text-primary hover:underline"
                   >
-                    {job.job_template_id.slice(0, 8)}
+                    {jobName}
                   </Link>
                 ) : (
-                  <span>—</span>
+                  <Badge variant="secondary">Project Sync</Badge>
                 )}
               </dd>
             </div>
+            {template && (
+              <div>
+                <dt className="text-xs font-medium text-muted-foreground">Playbook</dt>
+                <dd className="mt-1">
+                  <Mono>{template.playbook}</Mono>
+                </dd>
+              </div>
+            )}
             <div>
               <dt className="text-xs font-medium text-muted-foreground">Revision</dt>
               <dd className="mt-1">

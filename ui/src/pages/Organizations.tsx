@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Separator } from '@/components/ui/separator'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { ListToolbar, ListPagination, useListControls } from '@/hooks/useListControls'
 import type { Organization, Team } from '../types'
 
 function extractErrorMessage(err: unknown): string {
@@ -133,6 +134,11 @@ export default function Organizations() {
   const [displayName, setDisplayName] = useState('')
   const [selectedOrg, setSelectedOrg] = useState<string | null>(null)
 
+  const list = useListControls(orgs, {
+    getText: (o) => `${o.name} ${o.display_name ?? ''} ${o.status}`,
+    pageSize: 10,
+  })
+
   const load = async () => {
     setLoading(true)
     try {
@@ -220,38 +226,64 @@ export default function Organizations() {
       {loading ? (
         <LoadingState />
       ) : (
-        <Card>
-          <CardContent className="p-0">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Name</TableHead>
-                  <TableHead>Display Name</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Created</TableHead>
-                  <TableHead>Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {orgs.map(org => (
-                  <TableRow key={org.id}>
-                    <TableCell><Mono>{org.name}</Mono></TableCell>
-                    <TableCell>{org.display_name || '—'}</TableCell>
-                    <TableCell>
-                      <StatusBadge status={org.status} />
-                    </TableCell>
-                    <TableCell>{new Date(org.created_at).toLocaleDateString()}</TableCell>
-                    <TableCell>
-                      <Button size="sm" variant="outline" onClick={() => setSelectedOrg(org.id)}>
-                        Manage Teams
-                      </Button>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
+        <>
+          <ListToolbar
+            query={list.query}
+            onQueryChange={list.setQuery}
+            placeholder="Search organizations..."
+          />
+          {!list.pageItems.length ? (
+            <Card>
+              <CardContent>
+                <EmptyState
+                  message={list.query ? 'No organizations match your search.' : 'No organizations yet.'}
+                />
+              </CardContent>
+            </Card>
+          ) : (
+            <Card>
+              <CardContent className="p-0">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Name</TableHead>
+                      <TableHead>Display Name</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Created</TableHead>
+                      <TableHead>Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {list.pageItems.map(org => (
+                      <TableRow key={org.id}>
+                        <TableCell><Mono>{org.name}</Mono></TableCell>
+                        <TableCell>{org.display_name || '—'}</TableCell>
+                        <TableCell>
+                          <StatusBadge status={org.status} />
+                        </TableCell>
+                        <TableCell>{new Date(org.created_at).toLocaleDateString()}</TableCell>
+                        <TableCell>
+                          <Button size="sm" variant="outline" onClick={() => setSelectedOrg(org.id)}>
+                            Manage Teams
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+          )}
+          <ListPagination
+            page={list.page}
+            totalPages={list.totalPages}
+            pageSize={list.pageSize}
+            total={list.total}
+            rangeLabel={list.rangeLabel}
+            onPageChange={list.setPage}
+            onPageSizeChange={list.setPageSize}
+          />
+        </>
       )}
     </div>
   )

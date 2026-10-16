@@ -2,13 +2,14 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useProjects, useOrganizations, useCreateProject, useSyncProject } from '../hooks/useApi'
 import { ErrorState } from '../components/ErrorState'
-import { PageHeader, StatusBadge, LoadingState, Mono } from '../components/Page'
+import { PageHeader, StatusBadge, LoadingState, Mono, EmptyState } from '../components/Page'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { ListToolbar, ListPagination, useListControls } from '@/hooks/useListControls'
 
 function extractErrorMessage(err: unknown): string {
   if (err && typeof err === 'object' && 'response' in err) {
@@ -33,6 +34,11 @@ export default function Projects() {
   const [syncingId, setSyncingId] = useState<string | null>(null)
 
   const orgName = (id: string) => orgs?.results?.find(o => o.id === id)?.name ?? id.slice(0, 8)
+
+  const list = useListControls(projects?.results, {
+    getText: (p) => `${p.name} ${p.scm_url} ${p.scm_branch} ${p.sync_status} ${orgName(p.organization_id)}`,
+    pageSize: 10,
+  })
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -133,53 +139,77 @@ export default function Projects() {
       ) : isError && !projects ? (
         <ErrorState message="Failed to load projects" onRetry={() => refetch()} />
       ) : (
-        <Card>
-          <CardContent className="p-0">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Name</TableHead>
-                  <TableHead>Organization</TableHead>
-                  <TableHead>URL</TableHead>
-                  <TableHead>Branch</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Revision</TableHead>
-                  <TableHead>Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {projects?.results?.map((project) => (
-                  <TableRow key={project.id}>
-                    <TableCell>
-                      <Link to={`/projects/${project.id}`} className="text-primary hover:underline">
-                        {project.name}
-                      </Link>
-                    </TableCell>
-                    <TableCell>{orgName(project.organization_id)}</TableCell>
-                    <TableCell><Mono>{project.scm_url}</Mono></TableCell>
-                    <TableCell>{project.scm_branch}</TableCell>
-                    <TableCell>
-                      <StatusBadge status={project.sync_status} />
-                    </TableCell>
-                    <TableCell>
-                      <Mono>{project.latest_revision?.slice(0, 8) ?? '—'}</Mono>
-                    </TableCell>
-                    <TableCell>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => handleSync(project.id)}
-                        disabled={syncingId === project.id || project.sync_status === 'running'}
-                      >
-                        {syncingId === project.id ? 'Syncing...' : 'Sync'}
-                      </Button>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
+        <>
+          <ListToolbar
+            query={list.query}
+            onQueryChange={list.setQuery}
+            placeholder="Search projects..."
+          />
+          {!list.pageItems.length ? (
+            <Card>
+              <CardContent>
+                <EmptyState message={list.query ? 'No projects match your search.' : 'No projects yet.'} />
+              </CardContent>
+            </Card>
+          ) : (
+            <Card>
+              <CardContent className="p-0">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Name</TableHead>
+                      <TableHead>Organization</TableHead>
+                      <TableHead>URL</TableHead>
+                      <TableHead>Branch</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Revision</TableHead>
+                      <TableHead>Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {list.pageItems.map((project) => (
+                      <TableRow key={project.id}>
+                        <TableCell>
+                          <Link to={`/projects/${project.id}`} className="text-primary hover:underline">
+                            {project.name}
+                          </Link>
+                        </TableCell>
+                        <TableCell>{orgName(project.organization_id)}</TableCell>
+                        <TableCell><Mono>{project.scm_url}</Mono></TableCell>
+                        <TableCell>{project.scm_branch}</TableCell>
+                        <TableCell>
+                          <StatusBadge status={project.sync_status} />
+                        </TableCell>
+                        <TableCell>
+                          <Mono>{project.latest_revision?.slice(0, 8) ?? '—'}</Mono>
+                        </TableCell>
+                        <TableCell>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => handleSync(project.id)}
+                            disabled={syncingId === project.id || project.sync_status === 'running'}
+                          >
+                            {syncingId === project.id ? 'Syncing...' : 'Sync'}
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+          )}
+          <ListPagination
+            page={list.page}
+            totalPages={list.totalPages}
+            pageSize={list.pageSize}
+            total={list.total}
+            rangeLabel={list.rangeLabel}
+            onPageChange={list.setPage}
+            onPageSizeChange={list.setPageSize}
+          />
+        </>
       )}
     </div>
   )

@@ -9,6 +9,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { ListToolbar, ListPagination, useListControls } from '@/hooks/useListControls'
 
 function extractErrorMessage(err: unknown): string {
   if (err && typeof err === 'object' && 'response' in err) {
@@ -27,6 +28,13 @@ export default function JobTemplates() {
   const { data: orgs } = useOrganizations()
   const launchJob = useLaunchJob()
   const createTemplate = useCreateJobTemplate()
+  const list = useListControls(templates?.results, {
+    getText: (jt) =>
+      `${jt.name} ${jt.description ?? ''} ${jt.playbook} ${jt.limit ?? ''} ${
+        orgs?.results?.find((o) => o.id === jt.organization_id)?.name ?? ''
+      }`,
+    pageSize: 10,
+  })
   const [showCreate, setShowCreate] = useState(false)
   const [name, setName] = useState('')
   const [desc, setDesc] = useState('')
@@ -228,60 +236,80 @@ export default function JobTemplates() {
         <LoadingState />
       ) : isError ? (
         <ErrorState message="Failed to load job templates" onRetry={() => refetch()} />
-      ) : templates?.results?.length === 0 ? (
-        <Card>
-          <CardContent>
-            <EmptyState message="No job templates yet" />
-          </CardContent>
-        </Card>
       ) : (
-        <Card>
-          <CardContent className="p-0">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Name</TableHead>
-                  <TableHead>Organization</TableHead>
-                  <TableHead>Playbook</TableHead>
-                  <TableHead>Inventory</TableHead>
-                  <TableHead>Limit</TableHead>
-                  <TableHead>Verbosity</TableHead>
-                  <TableHead>Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {templates?.results?.map(jt => (
-                  <TableRow key={jt.id}>
-                    <TableCell>
-                      <div className="font-medium">{jt.name}</div>
-                      {jt.description && (
-                        <div className="text-xs text-muted-foreground">{jt.description}</div>
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      {orgs?.results?.find(o => o.id === jt.organization_id)?.name ?? (
-                        <Mono>{jt.organization_id.slice(0, 8)}</Mono>
-                      )}
-                    </TableCell>
-                    <TableCell><Mono>{jt.playbook}</Mono></TableCell>
-                    <TableCell>{jt.inventory_id ? 'Yes' : '—'}</TableCell>
-                    <TableCell><Mono>{jt.limit || '—'}</Mono></TableCell>
-                    <TableCell>{jt.verbosity > 0 ? `-${'v'.repeat(jt.verbosity)}` : 'Normal'}</TableCell>
-                    <TableCell>
-                      <Button
-                        size="sm"
-                        onClick={() => handleLaunch(jt.id)}
-                        disabled={launchJob.isPending}
-                      >
-                        Launch
-                      </Button>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
+        <>
+          <ListToolbar
+            query={list.query}
+            onQueryChange={list.setQuery}
+            placeholder="Search job templates..."
+          />
+          {!list.pageItems.length ? (
+            <Card>
+              <CardContent>
+                <EmptyState
+                  message={list.query ? 'No job templates match your search.' : 'No job templates yet'}
+                />
+              </CardContent>
+            </Card>
+          ) : (
+            <Card>
+              <CardContent className="p-0">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Name</TableHead>
+                      <TableHead>Organization</TableHead>
+                      <TableHead>Playbook</TableHead>
+                      <TableHead>Inventory</TableHead>
+                      <TableHead>Limit</TableHead>
+                      <TableHead>Verbosity</TableHead>
+                      <TableHead>Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {list.pageItems.map(jt => (
+                      <TableRow key={jt.id}>
+                        <TableCell>
+                          <div className="font-medium">{jt.name}</div>
+                          {jt.description && (
+                            <div className="text-xs text-muted-foreground">{jt.description}</div>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          {orgs?.results?.find(o => o.id === jt.organization_id)?.name ?? (
+                            <Mono>{jt.organization_id.slice(0, 8)}</Mono>
+                          )}
+                        </TableCell>
+                        <TableCell><Mono>{jt.playbook}</Mono></TableCell>
+                        <TableCell>{jt.inventory_id ? 'Yes' : '—'}</TableCell>
+                        <TableCell><Mono>{jt.limit || '—'}</Mono></TableCell>
+                        <TableCell>{jt.verbosity > 0 ? `-${'v'.repeat(jt.verbosity)}` : 'Normal'}</TableCell>
+                        <TableCell>
+                          <Button
+                            size="sm"
+                            onClick={() => handleLaunch(jt.id)}
+                            disabled={launchJob.isPending}
+                          >
+                            Launch
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+          )}
+          <ListPagination
+            page={list.page}
+            totalPages={list.totalPages}
+            pageSize={list.pageSize}
+            total={list.total}
+            rangeLabel={list.rangeLabel}
+            onPageChange={list.setPage}
+            onPageSizeChange={list.setPageSize}
+          />
+        </>
       )}
     </div>
   )

@@ -56,6 +56,16 @@ export interface Job {
   updated_at: string
 }
 
+/** Human-readable label for a job: template name, or Project Sync when unlinked. */
+export function jobDisplayName(
+  job: Pick<Job, 'job_template_id'>,
+  templates?: Array<{ id: string; name: string }> | null,
+): string {
+  if (!job.job_template_id) return 'Project Sync'
+  const template = templates?.find((t) => t.id === job.job_template_id)
+  return template?.name ?? `Template ${job.job_template_id.slice(0, 8)}`
+}
+
 export interface JobEvent {
   id: number
   job_id: string

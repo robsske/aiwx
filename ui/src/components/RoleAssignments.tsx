@@ -14,6 +14,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { ListToolbar, ListPagination, useListControls } from '@/hooks/useListControls'
 import type { Team, User } from '../types'
 
 interface RoleAssignment {
@@ -99,6 +100,11 @@ export function RoleAssignments({ orgId }: { orgId: string }) {
 
   const teamName = (id: string | null) => id ? teams.find(t => t.id === id)?.name ?? id.slice(0, 8) : '—'
   const userName = (id: string | null) => id ? users.find(u => u.id === id)?.email ?? id.slice(0, 8) : '—'
+
+  const list = useListControls(assignments, {
+    getText: (a) => `${a.role_name} ${a.team_id ? teamName(a.team_id) : userName(a.user_id)} ${a.team_id ? 'Team' : 'User'}`,
+    pageSize: 10,
+  })
 
   return (
     <div>
@@ -187,37 +193,63 @@ export function RoleAssignments({ orgId }: { orgId: string }) {
 
       {loading ? (
         <LoadingState />
-      ) : assignments.length === 0 ? (
-        <EmptyState message="No role assignments yet" />
       ) : (
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Role</TableHead>
-              <TableHead>Assigned To</TableHead>
-              <TableHead>Type</TableHead>
-              <TableHead>Created</TableHead>
-              <TableHead>Actions</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {assignments.map(a => (
-              <TableRow key={a.id}>
-                <TableCell><Badge variant="secondary">{a.role_name}</Badge></TableCell>
-                <TableCell>
-                  {a.team_id ? teamName(a.team_id) : userName(a.user_id)}
-                </TableCell>
-                <TableCell>{a.team_id ? 'Team' : 'User'}</TableCell>
-                <TableCell>{new Date(a.created_at).toLocaleDateString()}</TableCell>
-                <TableCell>
-                  <Button size="sm" variant="destructive" onClick={() => handleRemove(a.id)}>
-                    Remove
-                  </Button>
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
+        <>
+          <ListToolbar
+            query={list.query}
+            onQueryChange={list.setQuery}
+            placeholder="Search role assignments..."
+          />
+          {!list.pageItems.length ? (
+            <EmptyState
+              message={
+                list.query
+                  ? 'No role assignments match your search.'
+                  : 'No role assignments yet'
+              }
+            />
+          ) : (
+            <>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Role</TableHead>
+                    <TableHead>Assigned To</TableHead>
+                    <TableHead>Type</TableHead>
+                    <TableHead>Created</TableHead>
+                    <TableHead>Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {list.pageItems.map(a => (
+                    <TableRow key={a.id}>
+                      <TableCell><Badge variant="secondary">{a.role_name}</Badge></TableCell>
+                      <TableCell>
+                        {a.team_id ? teamName(a.team_id) : userName(a.user_id)}
+                      </TableCell>
+                      <TableCell>{a.team_id ? 'Team' : 'User'}</TableCell>
+                      <TableCell>{new Date(a.created_at).toLocaleDateString()}</TableCell>
+                      <TableCell>
+                        <Button size="sm" variant="destructive" onClick={() => handleRemove(a.id)}>
+                          Remove
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+              <ListPagination
+                page={list.page}
+                totalPages={list.totalPages}
+                pageSize={list.pageSize}
+                total={list.total}
+                rangeLabel={list.rangeLabel}
+                onPageChange={list.setPage}
+                onPageSizeChange={list.setPageSize}
+              />
+            </>
+          )}
+        </>
       )}
     </div>
   )

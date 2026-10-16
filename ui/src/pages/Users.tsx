@@ -1,12 +1,13 @@
 import { useState, useEffect } from 'react'
 import { api } from '../services/api'
 import { ErrorState } from '../components/ErrorState'
-import { PageHeader, StatusBadge, LoadingState } from '../components/Page'
+import { PageHeader, StatusBadge, LoadingState, EmptyState } from '../components/Page'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { ListToolbar, ListPagination, useListControls } from '@/hooks/useListControls'
 import type { User } from '../types'
 
 function extractErrorMessage(err: unknown): string {
@@ -26,6 +27,11 @@ export default function Users() {
   const [email, setEmail] = useState('')
   const [displayName, setDisplayName] = useState('')
   const [password, setPassword] = useState('')
+
+  const list = useListControls(users, {
+    getText: (u) => `${u.email} ${u.display_name ?? ''}`,
+    pageSize: 10,
+  })
 
   const load = async () => {
     setLoading(true)
@@ -108,32 +114,56 @@ export default function Users() {
       {loading ? (
         <LoadingState />
       ) : (
-        <Card>
-          <CardContent className="p-0">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Email</TableHead>
-                  <TableHead>Display Name</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Created</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {users.map(u => (
-                  <TableRow key={u.id}>
-                    <TableCell>{u.email}</TableCell>
-                    <TableCell>{u.display_name || '—'}</TableCell>
-                    <TableCell>
-                      <StatusBadge status={u.is_active ? 'active' : 'inactive'} />
-                    </TableCell>
-                    <TableCell>{new Date(u.created_at).toLocaleDateString()}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
+        <>
+          <ListToolbar
+            query={list.query}
+            onQueryChange={list.setQuery}
+            placeholder="Search users..."
+          />
+          {!list.pageItems.length ? (
+            <Card>
+              <CardContent>
+                <EmptyState message={list.query ? 'No users match your search.' : 'No users yet.'} />
+              </CardContent>
+            </Card>
+          ) : (
+            <Card>
+              <CardContent className="p-0">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Email</TableHead>
+                      <TableHead>Display Name</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Created</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {list.pageItems.map(u => (
+                      <TableRow key={u.id}>
+                        <TableCell>{u.email}</TableCell>
+                        <TableCell>{u.display_name || '—'}</TableCell>
+                        <TableCell>
+                          <StatusBadge status={u.is_active ? 'active' : 'inactive'} />
+                        </TableCell>
+                        <TableCell>{new Date(u.created_at).toLocaleDateString()}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+          )}
+          <ListPagination
+            page={list.page}
+            totalPages={list.totalPages}
+            pageSize={list.pageSize}
+            total={list.total}
+            rangeLabel={list.rangeLabel}
+            onPageChange={list.setPage}
+            onPageSizeChange={list.setPageSize}
+          />
+        </>
       )}
     </div>
   )

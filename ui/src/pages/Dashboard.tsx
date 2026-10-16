@@ -1,8 +1,10 @@
-import { useProjects, useJobs } from '../hooks/useApi'
+import { Link } from 'react-router-dom'
+import { useProjects, useJobs, useJobTemplates } from '../hooks/useApi'
 import { ErrorState } from '../components/ErrorState'
 import { PageHeader, StatusBadge, EmptyState, LoadingState, Mono } from '../components/Page'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { jobDisplayName } from '../types'
 
 export default function Dashboard() {
   const {
@@ -17,6 +19,7 @@ export default function Dashboard() {
     isError: jobsError,
     refetch: refetchJobs,
   } = useJobs()
+  const { data: templates } = useJobTemplates()
 
   const recentJobs = jobs?.results?.slice(0, 5) ?? []
   const activeJobs =
@@ -60,7 +63,7 @@ export default function Dashboard() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>ID</TableHead>
+                    <TableHead>Name</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead>Created</TableHead>
                   </TableRow>
@@ -68,7 +71,14 @@ export default function Dashboard() {
                 <TableBody>
                   {recentJobs.map((job) => (
                     <TableRow key={job.id}>
-                      <TableCell><Mono>{job.id.slice(0, 8)}</Mono></TableCell>
+                      <TableCell>
+                        <Link
+                          to={`/jobs/${job.id}`}
+                          className="font-medium text-primary hover:underline"
+                        >
+                          {jobDisplayName(job, templates?.results)}
+                        </Link>
+                      </TableCell>
                       <TableCell><StatusBadge status={job.status} /></TableCell>
                       <TableCell>{new Date(job.created_at).toLocaleString()}</TableCell>
                     </TableRow>
