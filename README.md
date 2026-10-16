@@ -12,6 +12,8 @@ A multi-tenant automation controller — a modern reimplementation of [AWX](http
 | *Login* | *Dashboard* |
 | ![Jobs](docs/screenshots/jobs.png) | ![Job detail](docs/screenshots/job-detail.png) |
 | *Jobs* | *Job detail with Ansible output* |
+| ![Workflows](docs/screenshots/workflows.png) | ![Workflow builder](docs/screenshots/workflow-builder.png) |
+| *Workflows* | *Visual workflow builder* |
 | ![Projects](docs/screenshots/projects.png) | ![Job templates](docs/screenshots/job-templates.png) |
 | *Projects* | *Job templates* |
 | ![Organizations](docs/screenshots/organizations.png) | ![Credentials](docs/screenshots/credentials.png) |

@@ -236,10 +236,34 @@ func (d *Deps) runWorkflow(workflowJobID uuid.UUID) {
 	ctx := rContext()
 	_ = d.Repos.Workflows.UpdateJobStatus(ctx, workflowJobID, "running")
 
-	for i := 0; i < 64; i++ {
+	for i := 0; i < 128; i++ {
 		job, err := d.Repos.Workflows.GetJobByID(ctx, workflowJobID)
 		if err != nil {
 			d.Logger.Error("workflow run load failed", "error", err, "workflow_job_id", workflowJobID)
+			return
+		}
+
+		// Always sync running nodes from their jobs before planning the next wave
+		for _, n := range job.Nodes {
+			if n.JobID == nil || (n.Status != "running" && n.Status != "pending") {
+				continue
+			}
+			j, err := d.Repos.Jobs.GetByID(ctx, *n.JobID)
+			if err != nil {
+				continue
+			}
+			switch string(j.Status) {
+			case "successful":
+				_ = d.Repos.Workflows.UpdateJobNodeStatus(ctx, n.ID, "success", nil, "")
+			case "failed", "error":
+				_ = d.Repos.Workflows.UpdateJobNodeStatus(ctx, n.ID, "failed", nil, "")
+			case "canceled":
+				_ = d.Repos.Workflows.UpdateJobNodeStatus(ctx, n.ID, "skipped", nil, "canceled")
+			}
+		}
+		// Reload after sync
+		job, err = d.Repos.Workflows.GetJobByID(ctx, workflowJobID)
+		if err != nil {
 			return
 		}
 
@@ -352,33 +376,11 @@ func (d *Deps) runWorkflow(workflowJobID uuid.UUID) {
 			_ = d.Repos.Workflows.UpdateJobNodeStatus(ctx, n.ID, "running", &newJob.ID, "")
 		}
 
-		// Wait for launched jobs to finish before next wave
+		// Wait for launched jobs / in-flight nodes before next wave
 		select {
 		case <-ctx.Done():
 			return
-		case <-time.After(3 * time.Second):
-		}
-		// refresh node statuses from jobs
-		job, err = d.Repos.Workflows.GetJobByID(ctx, workflowJobID)
-		if err != nil {
-			return
-		}
-		for _, n := range job.Nodes {
-			if n.JobID == nil || n.Status != "running" {
-				continue
-			}
-			j, err := d.Repos.Jobs.GetByID(ctx, *n.JobID)
-			if err != nil {
-				continue
-			}
-			switch j.Status {
-			case "successful":
-				_ = d.Repos.Workflows.UpdateJobNodeStatus(ctx, n.ID, "success", nil, "")
-			case "failed", "error":
-				_ = d.Repos.Workflows.UpdateJobNodeStatus(ctx, n.ID, "failed", nil, "")
-			case "canceled":
-				_ = d.Repos.Workflows.UpdateJobNodeStatus(ctx, n.ID, "skipped", nil, "canceled")
-			}
+		case <-time.After(1500 * time.Millisecond):
 		}
 	}
 	_ = d.Repos.Workflows.UpdateJobStatus(ctx, workflowJobID, "error")
