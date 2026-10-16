@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
 	"github.com/rverhe/aiwx/internal/auth"
 	"github.com/rverhe/aiwx/internal/rbac"
 )
@@ -111,7 +112,7 @@ func (w *statusWriter) WriteHeader(code int) {
 func writeJSON(w http.ResponseWriter, status int, data any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(data)
+	_ = json.NewEncoder(w).Encode(data)
 }
 
 // writeError writes a JSON error response.

@@ -48,7 +48,7 @@ type LocalStore struct {
 
 // NewLocalStore creates a new local filesystem store.
 func NewLocalStore(basePath string) (*LocalStore, error) {
-	if err := os.MkdirAll(basePath, 0755); err != nil {
+	if err := os.MkdirAll(basePath, 0o755); err != nil {
 		return nil, fmt.Errorf("create base path: %w", err)
 	}
 	return &LocalStore{basePath: basePath}, nil
@@ -57,7 +57,7 @@ func NewLocalStore(basePath string) (*LocalStore, error) {
 // Put stores an object on the local filesystem.
 func (s *LocalStore) Put(ctx context.Context, key string, data io.Reader, size int64, contentType string) error {
 	path := filepath.Join(s.basePath, key)
-	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return fmt.Errorf("create directory: %w", err)
 	}
 
@@ -183,7 +183,7 @@ func (s *LogStore) GetLogChunks(ctx context.Context, jobID string) ([]LogChunk, 
 		}
 
 		var seq int64
-		fmt.Sscanf(parts[len(parts)-1], "%d.log", &seq)
+		_, _ = fmt.Sscanf(parts[len(parts)-1], "%d.log", &seq)
 
 		// Read content
 		rc, err := s.store.Get(ctx, obj.Key)
@@ -192,7 +192,7 @@ func (s *LogStore) GetLogChunks(ctx context.Context, jobID string) ([]LogChunk, 
 		}
 
 		data, err := io.ReadAll(rc)
-		rc.Close()
+		_ = rc.Close()
 		if err != nil {
 			continue
 		}

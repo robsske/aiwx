@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"github.com/google/uuid"
+
 	"github.com/rverhe/aiwx/internal/auth"
 	"github.com/rverhe/aiwx/internal/metrics"
 	"github.com/rverhe/aiwx/internal/outbox"

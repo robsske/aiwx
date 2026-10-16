@@ -67,12 +67,12 @@ type UserCreate struct {
 type RoleName string
 
 const (
-	RolePlatformAdmin    RoleName = "platform-admin"
+	RolePlatformAdmin     RoleName = "platform-admin"
 	RoleOrganizationAdmin RoleName = "organization-admin"
-	RoleTeamAdmin        RoleName = "team-admin"
-	RoleOperator         RoleName = "operator"
-	RoleViewer           RoleName = "viewer"
-	RoleAuditor          RoleName = "auditor"
+	RoleTeamAdmin         RoleName = "team-admin"
+	RoleOperator          RoleName = "operator"
+	RoleViewer            RoleName = "viewer"
+	RoleAuditor           RoleName = "auditor"
 )
 
 type RoleAssignment struct {
@@ -85,7 +85,7 @@ type RoleAssignment struct {
 }
 
 type RoleAssignmentCreate struct {
-	RoleName RoleName  `json:"role_name"`
+	RoleName RoleName   `json:"role_name"`
 	UserID   *uuid.UUID `json:"user_id"`
 	TeamID   *uuid.UUID `json:"team_id"`
 }
@@ -93,17 +93,17 @@ type RoleAssignmentCreate struct {
 // ─── Project ──────────────────────────────────────────────────────────────────
 
 type Project struct {
-	ID               uuid.UUID  `json:"id"`
-	Name             string     `json:"name"`
-	OrganizationID   uuid.UUID  `json:"organization_id"`
-	SCMURL           string     `json:"scm_url"`
-	SCMBranch        string     `json:"scm_branch"`
-	SCMCredentialID  *uuid.UUID `json:"scm_credential_id"`
-	LatestRevision   *string    `json:"latest_revision"`
-	SyncStatus       string     `json:"sync_status"`
-	LastSyncAt       *time.Time `json:"last_sync_at"`
-	CreatedAt        time.Time  `json:"created_at"`
-	UpdatedAt        time.Time  `json:"updated_at"`
+	ID              uuid.UUID  `json:"id"`
+	Name            string     `json:"name"`
+	OrganizationID  uuid.UUID  `json:"organization_id"`
+	SCMURL          string     `json:"scm_url"`
+	SCMBranch       string     `json:"scm_branch"`
+	SCMCredentialID *uuid.UUID `json:"scm_credential_id"`
+	LatestRevision  *string    `json:"latest_revision"`
+	SyncStatus      string     `json:"sync_status"`
+	LastSyncAt      *time.Time `json:"last_sync_at"`
+	CreatedAt       time.Time  `json:"created_at"`
+	UpdatedAt       time.Time  `json:"updated_at"`
 }
 
 type ProjectCreate struct {
@@ -158,15 +158,15 @@ type CredentialCreate struct {
 // ─── Inventory ────────────────────────────────────────────────────────────────
 
 type Inventory struct {
-	ID                          uuid.UUID `json:"id"`
-	Name                        string    `json:"name"`
-	Description                 string    `json:"description"`
-	OrganizationID              uuid.UUID `json:"organization_id"`
-	HostCount                   int       `json:"host_count"`
-	GroupCount                  int       `json:"group_count"`
-	HasActiveInventorySources   bool      `json:"has_active_inventory_sources"`
-	CreatedAt                   time.Time `json:"created_at"`
-	UpdatedAt                   time.Time `json:"updated_at"`
+	ID                        uuid.UUID `json:"id"`
+	Name                      string    `json:"name"`
+	Description               string    `json:"description"`
+	OrganizationID            uuid.UUID `json:"organization_id"`
+	HostCount                 int       `json:"host_count"`
+	GroupCount                int       `json:"group_count"`
+	HasActiveInventorySources bool      `json:"has_active_inventory_sources"`
+	CreatedAt                 time.Time `json:"created_at"`
+	UpdatedAt                 time.Time `json:"updated_at"`
 }
 
 type InventoryCreate struct {
@@ -245,41 +245,41 @@ type JobTemplate struct {
 	Playbook               string      `json:"playbook"`
 	CredentialIDs          []uuid.UUID `json:"credential_ids"`
 	// AWX-style targeting
-	Limit               string `json:"limit"`
-	Verbosity           int    `json:"verbosity"`
-	Forks               int    `json:"forks"`
-	JobTags             string `json:"job_tags"`
-	SkipTags            string `json:"skip_tags"`
-	ExtraVars           map[string]any `json:"extra_vars"`
+	Limit     string         `json:"limit"`
+	Verbosity int            `json:"verbosity"`
+	Forks     int            `json:"forks"`
+	JobTags   string         `json:"job_tags"`
+	SkipTags  string         `json:"skip_tags"`
+	ExtraVars map[string]any `json:"extra_vars"`
 	// Launch behavior
-	AskInventoryOnLaunch  bool `json:"ask_inventory_on_launch"`
-	AskLimitOnLaunch      bool `json:"ask_limit_on_launch"`
-	AskVerbosityOnLaunch  bool `json:"ask_verbosity_on_launch"`
-	AskVariablesOnLaunch  bool `json:"ask_variables_on_launch"`
-	AskCredentialOnLaunch bool `json:"ask_credential_on_launch"`
-	CreatedAt             time.Time   `json:"created_at"`
-	UpdatedAt             time.Time   `json:"updated_at"`
+	AskInventoryOnLaunch  bool      `json:"ask_inventory_on_launch"`
+	AskLimitOnLaunch      bool      `json:"ask_limit_on_launch"`
+	AskVerbosityOnLaunch  bool      `json:"ask_verbosity_on_launch"`
+	AskVariablesOnLaunch  bool      `json:"ask_variables_on_launch"`
+	AskCredentialOnLaunch bool      `json:"ask_credential_on_launch"`
+	CreatedAt             time.Time `json:"created_at"`
+	UpdatedAt             time.Time `json:"updated_at"`
 }
 
 type JobTemplateCreate struct {
-	Name                   string      `json:"name"`
-	Description            string      `json:"description,omitempty"`
-	ProjectID              uuid.UUID   `json:"project_id"`
-	InventoryID            *uuid.UUID  `json:"inventory_id,omitempty"`
-	ExecutionEnvironmentID *uuid.UUID  `json:"execution_environment_id,omitempty"`
-	Playbook               string      `json:"playbook"`
-	CredentialIDs          []uuid.UUID `json:"credential_ids,omitempty"`
-	Limit                  string      `json:"limit,omitempty"`
-	Verbosity              int         `json:"verbosity,omitempty"`
-	Forks                  int         `json:"forks,omitempty"`
-	JobTags                string      `json:"job_tags,omitempty"`
-	SkipTags               string      `json:"skip_tags,omitempty"`
+	Name                   string         `json:"name"`
+	Description            string         `json:"description,omitempty"`
+	ProjectID              uuid.UUID      `json:"project_id"`
+	InventoryID            *uuid.UUID     `json:"inventory_id,omitempty"`
+	ExecutionEnvironmentID *uuid.UUID     `json:"execution_environment_id,omitempty"`
+	Playbook               string         `json:"playbook"`
+	CredentialIDs          []uuid.UUID    `json:"credential_ids,omitempty"`
+	Limit                  string         `json:"limit,omitempty"`
+	Verbosity              int            `json:"verbosity,omitempty"`
+	Forks                  int            `json:"forks,omitempty"`
+	JobTags                string         `json:"job_tags,omitempty"`
+	SkipTags               string         `json:"skip_tags,omitempty"`
 	ExtraVars              map[string]any `json:"extra_vars,omitempty"`
-	AskInventoryOnLaunch   bool        `json:"ask_inventory_on_launch,omitempty"`
-	AskLimitOnLaunch       bool        `json:"ask_limit_on_launch,omitempty"`
-	AskVerbosityOnLaunch   bool        `json:"ask_verbosity_on_launch,omitempty"`
-	AskVariablesOnLaunch   bool        `json:"ask_variables_on_launch,omitempty"`
-	AskCredentialOnLaunch  bool        `json:"ask_credential_on_launch,omitempty"`
+	AskInventoryOnLaunch   bool           `json:"ask_inventory_on_launch,omitempty"`
+	AskLimitOnLaunch       bool           `json:"ask_limit_on_launch,omitempty"`
+	AskVerbosityOnLaunch   bool           `json:"ask_verbosity_on_launch,omitempty"`
+	AskVariablesOnLaunch   bool           `json:"ask_variables_on_launch,omitempty"`
+	AskCredentialOnLaunch  bool           `json:"ask_credential_on_launch,omitempty"`
 }
 
 // ─── Job ──────────────────────────────────────────────────────────────────────
@@ -288,14 +288,14 @@ type JobTemplateCreate struct {
 type JobStatus string
 
 const (
-	JobStatusNew       JobStatus = "new"
-	JobStatusPending   JobStatus = "pending"
-	JobStatusWaiting   JobStatus = "waiting"
-	JobStatusRunning   JobStatus = "running"
+	JobStatusNew        JobStatus = "new"
+	JobStatusPending    JobStatus = "pending"
+	JobStatusWaiting    JobStatus = "waiting"
+	JobStatusRunning    JobStatus = "running"
 	JobStatusSuccessful JobStatus = "successful"
-	JobStatusFailed    JobStatus = "failed"
-	JobStatusError     JobStatus = "error"
-	JobStatusCanceled  JobStatus = "canceled"
+	JobStatusFailed     JobStatus = "failed"
+	JobStatusError      JobStatus = "error"
+	JobStatusCanceled   JobStatus = "canceled"
 )
 
 // Terminal returns true if the job is in a terminal state.
@@ -319,14 +319,14 @@ type Job struct {
 }
 
 type JobLaunch struct {
-	InventoryID            *uuid.UUID        `json:"inventory_id,omitempty"`
-	ExecutionEnvironmentID *uuid.UUID        `json:"execution_environment_id,omitempty"`
-	ExtraVars              map[string]any    `json:"extra_vars,omitempty"`
-	Credentials            []uuid.UUID       `json:"credentials,omitempty"`
-	Limit                  string            `json:"limit,omitempty"`
-	Verbosity              *int              `json:"verbosity,omitempty"`
-	JobTags                string            `json:"job_tags,omitempty"`
-	SkipTags               string            `json:"skip_tags,omitempty"`
+	InventoryID            *uuid.UUID     `json:"inventory_id,omitempty"`
+	ExecutionEnvironmentID *uuid.UUID     `json:"execution_environment_id,omitempty"`
+	ExtraVars              map[string]any `json:"extra_vars,omitempty"`
+	Credentials            []uuid.UUID    `json:"credentials,omitempty"`
+	Limit                  string         `json:"limit,omitempty"`
+	Verbosity              *int           `json:"verbosity,omitempty"`
+	JobTags                string         `json:"job_tags,omitempty"`
+	SkipTags               string         `json:"skip_tags,omitempty"`
 }
 
 type JobEvent struct {
@@ -349,15 +349,15 @@ type PageInfo struct {
 
 // Scope represents a caller's authorization scope for tenant isolation.
 type Scope struct {
-	UserID           uuid.UUID
-	OrgIDs           []uuid.UUID
-	IsPlatformAdmin  bool
+	UserID          uuid.UUID
+	OrgIDs          []uuid.UUID
+	IsPlatformAdmin bool
 }
 
 // EffectiveRole represents a role assignment with its scope.
 type EffectiveRole struct {
-	Role  RoleName
-	OrgID uuid.UUID
+	Role   RoleName
+	OrgID  uuid.UUID
 	TeamID *uuid.UUID
 }
 

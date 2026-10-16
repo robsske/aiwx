@@ -5,6 +5,7 @@ import (
 	"context"
 
 	"github.com/google/uuid"
+
 	"github.com/rverhe/aiwx/internal/domain"
 )
 

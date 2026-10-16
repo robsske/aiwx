@@ -4,9 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"strings"
 
 	"github.com/google/uuid"
+
 	"github.com/rverhe/aiwx/internal/auth"
 	"github.com/rverhe/aiwx/internal/domain"
 )
@@ -341,8 +341,4 @@ func parseInt(s string) (int, error) {
 		n = n*10 + int(c-'0')
 	}
 	return n, nil
-}
-
-func stringsContain(s, substr string) bool {
-	return strings.Contains(strings.ToLower(s), strings.ToLower(substr))
 }

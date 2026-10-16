@@ -9,15 +9,15 @@ import (
 func TestEventType_Constants(t *testing.T) {
 	// Verify event type constants are properly defined
 	eventTypes := map[string]string{
-		"job.created":       EventTypeJobCreated,
-		"job.pending":       EventTypeJobPending,
-		"job.waiting":       EventTypeJobWaiting,
-		"job.running":       EventTypeJobRunning,
-		"job.successful":    EventTypeJobSuccessful,
-		"job.failed":        EventTypeJobFailed,
-		"job.error":         EventTypeJobError,
-		"job.canceled":      EventTypeJobCanceled,
-		"project.sync":      EventTypeProjectSync,
+		"job.created":    EventTypeJobCreated,
+		"job.pending":    EventTypeJobPending,
+		"job.waiting":    EventTypeJobWaiting,
+		"job.running":    EventTypeJobRunning,
+		"job.successful": EventTypeJobSuccessful,
+		"job.failed":     EventTypeJobFailed,
+		"job.error":      EventTypeJobError,
+		"job.canceled":   EventTypeJobCanceled,
+		"project.sync":   EventTypeProjectSync,
 	}
 
 	for expected, actual := range eventTypes {

@@ -20,7 +20,7 @@ func newTestRouter() http.Handler {
 }
 
 func makeRequest(t *testing.T, handler http.Handler, method, path string) *httptest.ResponseRecorder {
-	req := httptest.NewRequest(method, path, nil)
+	req := httptest.NewRequest(method, path, http.NoBody)
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
@@ -96,7 +96,7 @@ func TestAuthRequired(t *testing.T) {
 func TestInvalidAuth(t *testing.T) {
 	handler := newTestRouter()
 
-	req := httptest.NewRequest("GET", "/api/v1/organizations", nil)
+	req := httptest.NewRequest("GET", "/api/v1/organizations", http.NoBody)
 	req.Header.Set("Authorization", "Bearer invalid-token")
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
@@ -111,7 +111,7 @@ func TestInvalidAuth(t *testing.T) {
 func TestRequestID(t *testing.T) {
 	handler := newTestRouter()
 
-	req := httptest.NewRequest("GET", "/healthz", nil)
+	req := httptest.NewRequest("GET", "/healthz", http.NoBody)
 	req.Header.Set("X-Request-ID", "test-request-id")
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)

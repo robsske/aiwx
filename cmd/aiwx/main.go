@@ -167,7 +167,7 @@ func loadConfig() Config {
 		JWTSecret:   os.Getenv("JWT_SECRET"),
 	}
 	if port := os.Getenv("PORT"); port != "" {
-		fmt.Sscanf(port, "%d", &cfg.Port)
+		_, _ = fmt.Sscanf(port, "%d", &cfg.Port)
 	}
 
 	if cfg.DatabaseURL == "" {

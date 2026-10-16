@@ -93,10 +93,10 @@ func NewClient(cfg Config) (*Client, error) {
 // ensureStreams creates required JetStream streams.
 func (c *Client) ensureStreams() error {
 	streams := []struct {
-		name     string
-		subjects []string
+		name      string
+		subjects  []string
 		retention nats.RetentionPolicy
-		maxAge   time.Duration
+		maxAge    time.Duration
 	}{
 		{
 			name:      "AIWX_JOB_EVENTS",
@@ -165,11 +165,11 @@ func (c *Client) Subscribe(subject string, handler func(*Event)) (*nats.Subscrip
 	sub, err := c.js.Subscribe(subject, func(msg *nats.Msg) {
 		var event Event
 		if err := json.Unmarshal(msg.Data, &event); err != nil {
-			msg.Nak()
+			_ = msg.Nak()
 			return
 		}
 		handler(&event)
-		msg.Ack()
+		_ = msg.Ack()
 	}, nats.Durable("aiwx-consumer"), nats.ManualAck())
 	if err != nil {
 		return nil, fmt.Errorf("subscribe: %w", err)
@@ -231,11 +231,11 @@ type OutboxEvent struct {
 func (p *NATSPublisher) Publish(ctx context.Context, event OutboxEvent) error {
 	subject := subjectForEvent(EventType(event.EventType))
 	data, err := json.Marshal(map[string]any{
-		"id":             event.ID,
-		"type":           event.EventType,
-		"aggregate_type": event.AggregateType,
-		"aggregate_id":   event.AggregateID,
-		"payload":        event.Payload,
+		"id":              event.ID,
+		"type":            event.EventType,
+		"aggregate_type":  event.AggregateType,
+		"aggregate_id":    event.AggregateID,
+		"payload":         event.Payload,
 		"idempotency_key": event.IdempotencyKey,
 	})
 	if err != nil {

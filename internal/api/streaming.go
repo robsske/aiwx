@@ -11,10 +11,10 @@ import (
 
 // SSE event types for real-time streaming.
 const (
-	SSEEventJobStatus  = "job.status"
-	SSEEventJobLog     = "job.log"
-	SSEEventJobEvent   = "job.event"
-	SSEEventHeartbeat  = "heartbeat"
+	SSEEventJobStatus = "job.status"
+	SSEEventJobLog    = "job.log"
+	SSEEventJobEvent  = "job.event"
+	SSEEventHeartbeat = "heartbeat"
 )
 
 // SSEMessage represents a server-sent event.
@@ -169,12 +169,12 @@ func sendSSE(w http.ResponseWriter, flusher http.Flusher, msg SSEMessage) {
 	}
 
 	if msg.Event != "" {
-		fmt.Fprintf(w, "event: %s\n", msg.Event)
+		_, _ = fmt.Fprintf(w, "event: %s\n", msg.Event)
 	}
 	if msg.ID != "" {
-		fmt.Fprintf(w, "id: %s\n", msg.ID)
+		_, _ = fmt.Fprintf(w, "id: %s\n", msg.ID)
 	}
-	fmt.Fprintf(w, "data: %s\n\n", data)
+	_, _ = fmt.Fprintf(w, "data: %s\n\n", data)
 	flusher.Flush()
 }
 

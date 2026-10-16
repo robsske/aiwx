@@ -41,20 +41,20 @@ type WorkflowLink struct {
 }
 
 type WorkflowTemplateCreate struct {
-	OrganizationID uuid.UUID         `json:"organization_id"`
-	Name           string            `json:"name"`
-	Description    string            `json:"description,omitempty"`
-	ExtraVars      map[string]any    `json:"extra_vars,omitempty"`
-	Nodes          []WorkflowNodeIn  `json:"nodes"`
-	Links          []WorkflowLinkIn  `json:"links"`
+	OrganizationID uuid.UUID        `json:"organization_id"`
+	Name           string           `json:"name"`
+	Description    string           `json:"description,omitempty"`
+	ExtraVars      map[string]any   `json:"extra_vars,omitempty"`
+	Nodes          []WorkflowNodeIn `json:"nodes"`
+	Links          []WorkflowLinkIn `json:"links"`
 }
 
 type WorkflowTemplateUpdate struct {
-	Name        *string            `json:"name,omitempty"`
-	Description *string            `json:"description,omitempty"`
-	ExtraVars   map[string]any     `json:"extra_vars,omitempty"`
-	Nodes       []WorkflowNodeIn   `json:"nodes"`
-	Links       []WorkflowLinkIn   `json:"links"`
+	Name        *string          `json:"name,omitempty"`
+	Description *string          `json:"description,omitempty"`
+	ExtraVars   map[string]any   `json:"extra_vars,omitempty"`
+	Nodes       []WorkflowNodeIn `json:"nodes"`
+	Links       []WorkflowLinkIn `json:"links"`
 }
 
 // WorkflowNodeIn is create/update payload for a graph node (client-generated id ok).
@@ -103,9 +103,9 @@ type WorkflowJobNode struct {
 }
 
 type WorkflowJobNodeLink struct {
-	ID           uuid.UUID `json:"id"`
+	ID            uuid.UUID `json:"id"`
 	WorkflowJobID uuid.UUID `json:"workflow_job_id"`
-	SourceNodeID uuid.UUID `json:"source_node_id"`
-	TargetNodeID uuid.UUID `json:"target_node_id"`
-	Condition    string    `json:"condition"`
+	SourceNodeID  uuid.UUID `json:"source_node_id"`
+	TargetNodeID  uuid.UUID `json:"target_node_id"`
+	Condition     string    `json:"condition"`
 }

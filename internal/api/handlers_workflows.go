@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
 	"github.com/rverhe/aiwx/internal/domain"
 	"github.com/rverhe/aiwx/internal/repository"
 )

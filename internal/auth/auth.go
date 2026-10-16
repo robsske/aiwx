@@ -29,7 +29,7 @@ const (
 type AuthType string
 
 const (
-	AuthTypeOIDC          AuthType = "oidc"
+	AuthTypeOIDC           AuthType = "oidc"
 	AuthTypeServiceAccount AuthType = "service_account"
 )
 
@@ -165,7 +165,7 @@ func NewTokenHasher(salt string) *TokenHasher {
 
 // Hash returns the SHA-256 hash of a token.
 func (h *TokenHasher) Hash(token string) string {
-	salted := append(h.salt, token...)
+	salted := append(append([]byte(nil), h.salt...), token...)
 	sum := sha256.Sum256(salted)
 	return hex.EncodeToString(sum[:])
 }
@@ -190,14 +190,14 @@ func GenerateToken() (token, hash, prefix string, err error) {
 
 // Extractor extracts identity from HTTP requests.
 type Extractor struct {
-	jwt      *JWTValidator
-	store    ServiceAccountStore
-	hasher   *TokenHasher
+	jwt    *JWTValidator
+	store  ServiceAccountStore
+	hasher *TokenHasher
 }
 
 // NewExtractor creates an identity extractor.
-func NewExtractor(jwt *JWTValidator, store ServiceAccountStore, hasher *TokenHasher) *Extractor {
-	return &Extractor{jwt: jwt, store: store, hasher: hasher}
+func NewExtractor(validator *JWTValidator, store ServiceAccountStore, hasher *TokenHasher) *Extractor {
+	return &Extractor{jwt: validator, store: store, hasher: hasher}
 }
 
 // ExtractFromHeader extracts identity from an Authorization header.
@@ -237,7 +237,7 @@ func (e *Extractor) validateServiceAccount(ctx context.Context, token string) (*
 	}
 
 	// Update last used (fire and forget)
-	go e.store.Touch(context.Background(), sa.ID)
+	go func() { _ = e.store.Touch(context.Background(), sa.ID) }()
 
 	return &Identity{
 		OrganizationID: sa.OrganizationID,

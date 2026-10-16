@@ -154,17 +154,17 @@ func (s *Store) CountUnpublished(ctx context.Context) (int64, error) {
 
 // Standard event types for the outbox.
 const (
-	EventTypeJobCreated       = "job.created"
-	EventTypeJobPending       = "job.pending"
-	EventTypeJobWaiting       = "job.waiting"
-	EventTypeJobRunning       = "job.running"
-	EventTypeJobSuccessful    = "job.successful"
-	EventTypeJobFailed        = "job.failed"
-	EventTypeJobError         = "job.error"
-	EventTypeJobCanceled      = "job.canceled"
-	EventTypeProjectSync      = "project.sync"
-	EventTypeProjectSyncDone  = "project.sync.completed"
-	EventTypeProjectSyncFail  = "project.sync.failed"
+	EventTypeJobCreated      = "job.created"
+	EventTypeJobPending      = "job.pending"
+	EventTypeJobWaiting      = "job.waiting"
+	EventTypeJobRunning      = "job.running"
+	EventTypeJobSuccessful   = "job.successful"
+	EventTypeJobFailed       = "job.failed"
+	EventTypeJobError        = "job.error"
+	EventTypeJobCanceled     = "job.canceled"
+	EventTypeProjectSync     = "project.sync"
+	EventTypeProjectSyncDone = "project.sync.completed"
+	EventTypeProjectSyncFail = "project.sync.failed"
 )
 
 // ─── Publisher (relay to NATS) ────────────────────────────────────────────────
@@ -192,7 +192,7 @@ func NewRelay(store *Store, publisher Publisher, batchSize int, interval time.Du
 	}
 }
 
-// Run starts the relay loop. Blocks until ctx is cancelled.
+// Run starts the relay loop. Blocks until ctx is canceled.
 func (r *Relay) Run(ctx context.Context) error {
 	ticker := time.NewTicker(r.interval)
 	defer ticker.Stop()

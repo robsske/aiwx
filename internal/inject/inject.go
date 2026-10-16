@@ -24,11 +24,11 @@ const (
 
 // Credential represents a credential to inject.
 type Credential struct {
-	ID               uuid.UUID
-	Name             string
-	Type             CredentialType
-	Inputs           map[string]string
-	OrganizationID   uuid.UUID
+	ID             uuid.UUID
+	Name           string
+	Type           CredentialType
+	Inputs         map[string]string
+	OrganizationID uuid.UUID
 }
 
 // Injection contains the data to inject into a pod.
@@ -69,7 +69,7 @@ func (i *Injector) BuildInjection(creds []Credential, jobID uuid.UUID) (*Injecti
 	}
 
 	for _, cred := range creds {
-		if err := i.injectCredential(injection, cred, jobID); err != nil {
+		if err := i.injectCredential(injection, cred); err != nil {
 			return nil, fmt.Errorf("inject credential %s: %w", cred.Name, err)
 		}
 	}
@@ -78,7 +78,7 @@ func (i *Injector) BuildInjection(creds []Credential, jobID uuid.UUID) (*Injecti
 }
 
 // injectCredential injects a single credential.
-func (i *Injector) injectCredential(injection *Injection, cred Credential, jobID uuid.UUID) error {
+func (i *Injector) injectCredential(injection *Injection, cred Credential) error {
 	switch cred.Type {
 	case CredentialTypeGitSSH:
 		return i.injectGitSSH(injection, cred)

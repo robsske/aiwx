@@ -6,6 +6,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+
 	"github.com/rverhe/aiwx/internal/domain"
 )
 
@@ -274,7 +275,7 @@ func (d *Deps) handleCancelJob(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Create job event
-	d.Repos.JobEvents.Create(r.Context(), id, "job.canceled", map[string]any{
+	_, _ = d.Repos.JobEvents.Create(r.Context(), id, "job.canceled", map[string]any{
 		"reason": "user request",
 	})
 

@@ -1,41 +1,58 @@
+version: "2"
+
 run:
-  timeout: 5m
-  go: "1.23"
+  go: "1.26"
 
 linters:
   enable:
     - errcheck
-    - gosimple
     - govet
     - ineffassign
     - staticcheck
     - unused
     - gocritic
-    - gofmt
-    - goimports
     - misspell
     - unconvert
     - unparam
+  settings:
+    errcheck:
+      exclude-functions:
+        - (io.Closer).Close
+        - (*os.File).Close
+        - (github.com/jackc/pgx/v5.Tx).Rollback
+    gocritic:
+      enabled-tags:
+        - diagnostic
+        - performance
+        - style
+      disabled-checks:
+        - ifElseChain
+        - singleCaseSwitch
+        - hugeParam
+        - rangeValCopy
+        - unnamedResult
+        - paramTypeCombine
+        - nestingReduce
+        - exitAfterDefer
+        - filepathJoin
+    misspell:
+      locale: US
+  exclusions:
+    rules:
+      - path: _test\.go
+        linters:
+          - errcheck
+          - unparam
 
-linters-settings:
-  gocritic:
-    enabled-tags:
-      - diagnostic
-      - performance
-      - style
-    disabled-checks:
-      - ifElseChain
-      - singleCaseSwitch
-  goimports:
-    local-prefixes: github.com/rverhe/aiwx
-  misspell:
-    locale: US
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/rverhe/aiwx
 
 issues:
-  exclude-rules:
-    - path: _test\.go
-      linters:
-        - errcheck
-        - unparam
   max-issues-per-linter: 0
   max-same-issues: 0

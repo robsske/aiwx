@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+
 	"github.com/rverhe/aiwx/internal/auth"
 	"github.com/rverhe/aiwx/internal/domain"
 )
@@ -93,12 +94,12 @@ func (d *Deps) handleAuthMe(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"id":            user.ID,
-		"email":         user.Email,
-		"display_name":  user.DisplayName,
-		"auth_type":     identity.AuthType,
-		"organization":  identity.OrganizationID,
-		"roles":         identity.Roles,
+		"id":           user.ID,
+		"email":        user.Email,
+		"display_name": user.DisplayName,
+		"auth_type":    identity.AuthType,
+		"organization": identity.OrganizationID,
+		"roles":        identity.Roles,
 	})
 }
 
@@ -985,16 +986,16 @@ func (d *Deps) handleSyncProject(w http.ResponseWriter, r *http.Request) {
 		if d.SyncWorker != nil {
 			if err := d.SyncWorker.Sync(ctx, id); err != nil {
 				d.Logger.Error("project sync failed", "error", err, "project_id", id)
-				d.Repos.Projects.UpdateSyncStatus(ctx, id, "failed", "", "", err.Error())
+				_ = d.Repos.Projects.UpdateSyncStatus(ctx, id, "failed", "", "", err.Error())
 			}
 		} else {
 			// No sync worker — mark as failed
-			d.Repos.Projects.UpdateSyncStatus(ctx, id, "failed", "", "", "sync worker not configured")
+			_ = d.Repos.Projects.UpdateSyncStatus(ctx, id, "failed", "", "", "sync worker not configured")
 		}
 	}()
 
 	writeJSON(w, http.StatusAccepted, map[string]string{
-		"status": "sync_started",
+		"status":     "sync_started",
 		"project_id": id.String(),
 	})
 }

@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/rverhe/aiwx/internal/auth"
 	"github.com/rverhe/aiwx/internal/domain"
 )
@@ -282,15 +283,15 @@ func NewProjectRepo(pool *Pool) *ProjectRepo {
 
 func (r *ProjectRepo) Create(ctx context.Context, input domain.ProjectCreate, orgID uuid.UUID) (*domain.Project, error) {
 	project := &domain.Project{
-		ID:             uuid.New(),
-		Name:           input.Name,
-		OrganizationID: orgID,
-		SCMURL:         input.SCMURL,
-		SCMBranch:      input.SCMBranch,
+		ID:              uuid.New(),
+		Name:            input.Name,
+		OrganizationID:  orgID,
+		SCMURL:          input.SCMURL,
+		SCMBranch:       input.SCMBranch,
 		SCMCredentialID: input.SCMCredentialID,
-		SyncStatus:     "pending",
-		CreatedAt:      time.Now(),
-		UpdatedAt:      time.Now(),
+		SyncStatus:      "pending",
+		CreatedAt:       time.Now(),
+		UpdatedAt:       time.Now(),
 	}
 	if project.SCMBranch == "" {
 		project.SCMBranch = "main"

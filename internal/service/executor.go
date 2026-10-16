@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
 	"github.com/rverhe/aiwx/internal/domain"
 )
 
@@ -64,7 +65,7 @@ func (r *LocalRunner) Run(ctx context.Context, job *domain.Job, spec *JobSpec) (
 	}
 
 	// If workDir contains a tar.gz, extract it
-	workDir = r.extractArtifactIfNeeded(workDir, job.ID)
+	workDir = r.extractArtifactIfNeeded(workDir)
 
 	// Build ansible-playbook command — path must stay under workDir
 	playbookPath, err := safeJoin(workDir, spec.Playbook)
@@ -89,8 +90,7 @@ func (r *LocalRunner) Run(ctx context.Context, job *domain.Job, spec *JobSpec) (
 	inventoryPath := spec.Inventory
 	if inventoryPath == "" {
 		// Default to localhost for testing
-		args = append(args, "-i", "localhost,")
-		args = append(args, "-c", "local")
+		args = append(args, "-i", "localhost,", "-c", "local")
 	} else {
 		inv, err := safeJoin(workDir, inventoryPath)
 		if err != nil {
@@ -166,32 +166,32 @@ func (r *LocalRunner) Run(ctx context.Context, job *domain.Job, spec *JobSpec) (
 
 	// Write structured logs
 	if r.LogRepo != nil {
-		r.LogRepo.Append(ctx, job.ID, "system", fmt.Sprintf("=== ansible-playbook %s ===\n", strings.Join(args, " ")))
-		r.LogRepo.Append(ctx, job.ID, "system", fmt.Sprintf("Working directory: %s\n", workDir))
-		r.LogRepo.Append(ctx, job.ID, "system", fmt.Sprintf("Duration: %v\n", duration))
+		_ = r.LogRepo.Append(ctx, job.ID, "system", fmt.Sprintf("=== ansible-playbook %s ===\n", strings.Join(args, " ")))
+		_ = r.LogRepo.Append(ctx, job.ID, "system", fmt.Sprintf("Working directory: %s\n", workDir))
+		_ = r.LogRepo.Append(ctx, job.ID, "system", fmt.Sprintf("Duration: %v\n", duration))
 
 		if result.Stdout != "" {
 			for _, line := range strings.Split(result.Stdout, "\n") {
 				if line != "" {
-					r.LogRepo.Append(ctx, job.ID, "stdout", line+"\n")
+					_ = r.LogRepo.Append(ctx, job.ID, "stdout", line+"\n")
 				}
 			}
 		}
 		if result.Stderr != "" {
 			for _, line := range strings.Split(result.Stderr, "\n") {
 				if line != "" {
-					r.LogRepo.Append(ctx, job.ID, "stderr", line+"\n")
+					_ = r.LogRepo.Append(ctx, job.ID, "stderr", line+"\n")
 				}
 			}
 		}
-		r.LogRepo.Append(ctx, job.ID, "system", fmt.Sprintf("=== Exit code: %d ===\n", result.ExitCode))
+		_ = r.LogRepo.Append(ctx, job.ID, "system", fmt.Sprintf("=== Exit code: %d ===\n", result.ExitCode))
 	}
 
 	return result, nil
 }
 
 // extractArtifactIfNeeded extracts a tar.gz artifact to a working directory.
-func (r *LocalRunner) extractArtifactIfNeeded(artifactDir string, jobID uuid.UUID) string {
+func (r *LocalRunner) extractArtifactIfNeeded(artifactDir string) string {
 	entries, err := os.ReadDir(artifactDir)
 	if err != nil {
 		return artifactDir
@@ -204,7 +204,9 @@ func (r *LocalRunner) extractArtifactIfNeeded(artifactDir string, jobID uuid.UUI
 			extractDir := filepath.Join(artifactDir, "extracted")
 
 			// Extract with path containment (mitigate tar slip)
-			os.MkdirAll(extractDir, 0755)
+			if err := os.MkdirAll(extractDir, 0o755); err != nil {
+				continue
+			}
 			if err := extractTarSafe(tarPath, extractDir); err == nil {
 				return extractDir
 			}
@@ -273,7 +275,7 @@ func (r *LocalRunner) mockRun(ctx context.Context, job *domain.Job, spec *JobSpe
 	}
 
 	if r.LogRepo != nil {
-		r.LogRepo.Append(ctx, job.ID, "stdout", result.Stdout)
+		_ = r.LogRepo.Append(ctx, job.ID, "stdout", result.Stdout)
 	}
 
 	return result, nil
@@ -320,19 +322,19 @@ func mapToYAML(m map[string]any) string {
 		v := m[k]
 		switch val := v.(type) {
 		case string:
-			sb.WriteString(fmt.Sprintf("%s: %s\n", yamlKey(k), strconv.Quote(val)))
+			fmt.Fprintf(&sb, "%s: %s\n", yamlKey(k), strconv.Quote(val))
 		case int, int64, float64:
-			sb.WriteString(fmt.Sprintf("%s: %v\n", yamlKey(k), val))
+			fmt.Fprintf(&sb, "%s: %v\n", yamlKey(k), val)
 		case bool:
-			sb.WriteString(fmt.Sprintf("%s: %v\n", yamlKey(k), val))
+			fmt.Fprintf(&sb, "%s: %v\n", yamlKey(k), val)
 		default:
 			// Nested values: JSON is YAML-compatible
 			b, err := json.Marshal(val)
 			if err != nil {
-				sb.WriteString(fmt.Sprintf("%s: null\n", yamlKey(k)))
+				fmt.Fprintf(&sb, "%s: null\n", yamlKey(k))
 				continue
 			}
-			sb.WriteString(fmt.Sprintf("%s: %s\n", yamlKey(k), b))
+			fmt.Fprintf(&sb, "%s: %s\n", yamlKey(k), b)
 		}
 	}
 	return sb.String()

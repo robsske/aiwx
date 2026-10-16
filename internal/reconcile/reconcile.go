@@ -31,7 +31,7 @@ func New(store Store, logger *slog.Logger, maxAge time.Duration) *Reconciler {
 	}
 }
 
-// Run starts the reconciler loop. Blocks until ctx is cancelled.
+// Run starts the reconciler loop. Blocks until ctx is canceled.
 func (r *Reconciler) Run(ctx context.Context) error {
 	ticker := time.NewTicker(r.interval)
 	defer ticker.Stop()

@@ -6,6 +6,7 @@ import (
 	"log/slog"
 
 	"github.com/google/uuid"
+
 	"github.com/rverhe/aiwx/internal/repository"
 	"github.com/rverhe/aiwx/internal/sync"
 )

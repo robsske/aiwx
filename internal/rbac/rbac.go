@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/google/uuid"
+
 	"github.com/rverhe/aiwx/internal/domain"
 )
 
@@ -13,13 +14,13 @@ import (
 type Action string
 
 const (
-	ActionCreate Action = "create"
-	ActionRead   Action = "read"
-	ActionUpdate Action = "update"
-	ActionDelete Action = "delete"
+	ActionCreate  Action = "create"
+	ActionRead    Action = "read"
+	ActionUpdate  Action = "update"
+	ActionDelete  Action = "delete"
 	ActionExecute Action = "execute"
-	ActionManage Action = "manage"
-	ActionAudit  Action = "audit"
+	ActionManage  Action = "manage"
+	ActionAudit   Action = "audit"
 )
 
 // ResourceType represents a resource type for permission checks.

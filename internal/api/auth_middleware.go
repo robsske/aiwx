@@ -2,7 +2,6 @@ package api
 
 import (
 	"net/http"
-	"strings"
 
 	"github.com/rverhe/aiwx/internal/auth"
 )
@@ -30,23 +29,6 @@ func authMiddleware(extractor *auth.Extractor) func(http.Handler) http.Handler {
 
 			ctx := auth.ContextWithIdentity(r.Context(), identity)
 			next.ServeHTTP(w, r.WithContext(ctx))
-		})
-	}
-}
-
-// optionalAuthMiddleware attempts to authenticate but allows anonymous access.
-func optionalAuthMiddleware(extractor *auth.Extractor) func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			authHeader := r.Header.Get("Authorization")
-			if authHeader != "" && strings.HasPrefix(strings.ToLower(authHeader), "bearer ") {
-				identity, err := extractor.ExtractFromHeader(r.Context(), authHeader)
-				if err == nil {
-					ctx := auth.ContextWithIdentity(r.Context(), identity)
-					r = r.WithContext(ctx)
-				}
-			}
-			next.ServeHTTP(w, r)
 		})
 	}
 }

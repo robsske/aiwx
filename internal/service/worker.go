@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/rverhe/aiwx/internal/domain"
 )
 
@@ -22,11 +23,11 @@ type JobStore interface {
 
 // Worker polls for pending jobs and executes them.
 type Worker struct {
-	pool       *pgxpool.Pool
-	runner     JobRunner
-	logger     *slog.Logger
-	interval   time.Duration
-	timeout    time.Duration
+	pool     *pgxpool.Pool
+	runner   JobRunner
+	logger   *slog.Logger
+	interval time.Duration
+	timeout  time.Duration
 }
 
 // NewWorker creates a job worker.
@@ -40,7 +41,7 @@ func NewWorker(pool *pgxpool.Pool, runner JobRunner, logger *slog.Logger) *Worke
 	}
 }
 
-// Run starts the worker loop. Blocks until ctx is cancelled.
+// Run starts the worker loop. Blocks until ctx is canceled.
 func (w *Worker) Run(ctx context.Context) error {
 	ticker := time.NewTicker(w.interval)
 	defer ticker.Stop()
@@ -72,12 +73,7 @@ func (w *Worker) processOne(ctx context.Context) error {
 	}
 
 	// Load spec from template
-	spec, err := w.loadSpec(ctx, job)
-	if err != nil {
-		w.logger.Error("failed to load job spec", "job_id", job.ID, "error", err)
-		w.updateStatus(ctx, job.ID, domain.JobStatusError)
-		return err
-	}
+	spec := w.loadSpec(ctx, job)
 
 	// Run with timeout
 	runCtx, cancel := context.WithTimeout(ctx, w.timeout)
@@ -93,18 +89,30 @@ func (w *Worker) processOne(ctx context.Context) error {
 	result, err := w.runner.Run(runCtx, job, spec)
 	if err != nil {
 		w.logger.Error("job run failed", "job_id", job.ID, "error", err)
-		w.updateStatus(ctx, job.ID, domain.JobStatusFailed)
-		w.addEvent(ctx, job.ID, "job.failed", map[string]any{"error": err.Error()})
+		if uerr := w.updateStatus(ctx, job.ID, domain.JobStatusFailed); uerr != nil {
+			w.logger.Error("update status failed", "job_id", job.ID, "error", uerr)
+		}
+		if aerr := w.addEvent(ctx, job.ID, "job.failed", map[string]any{"error": err.Error()}); aerr != nil {
+			w.logger.Error("add event failed", "job_id", job.ID, "error", aerr)
+		}
 		return nil
 	}
 
 	// Write result
 	if result.ExitCode == 0 {
-		w.updateStatus(ctx, job.ID, domain.JobStatusSuccessful)
-		w.addEvent(ctx, job.ID, "job.successful", map[string]any{"exit_code": result.ExitCode})
+		if uerr := w.updateStatus(ctx, job.ID, domain.JobStatusSuccessful); uerr != nil {
+			w.logger.Error("update status failed", "job_id", job.ID, "error", uerr)
+		}
+		if aerr := w.addEvent(ctx, job.ID, "job.successful", map[string]any{"exit_code": result.ExitCode}); aerr != nil {
+			w.logger.Error("add event failed", "job_id", job.ID, "error", aerr)
+		}
 	} else {
-		w.updateStatus(ctx, job.ID, domain.JobStatusFailed)
-		w.addEvent(ctx, job.ID, "job.failed", map[string]any{"exit_code": result.ExitCode})
+		if uerr := w.updateStatus(ctx, job.ID, domain.JobStatusFailed); uerr != nil {
+			w.logger.Error("update status failed", "job_id", job.ID, "error", uerr)
+		}
+		if aerr := w.addEvent(ctx, job.ID, "job.failed", map[string]any{"exit_code": result.ExitCode}); aerr != nil {
+			w.logger.Error("add event failed", "job_id", job.ID, "error", aerr)
+		}
 	}
 
 	return nil
@@ -149,7 +157,7 @@ func (w *Worker) addEvent(ctx context.Context, jobID interface{ String() string 
 	return err
 }
 
-func (w *Worker) loadSpec(ctx context.Context, job *domain.Job) (*JobSpec, error) {
+func (w *Worker) loadSpec(ctx context.Context, job *domain.Job) *JobSpec {
 	spec := &JobSpec{}
 
 	// Load from job template if present
@@ -181,24 +189,23 @@ func (w *Worker) loadSpec(ctx context.Context, job *domain.Job) (*JobSpec, error
 			// Resolve project directory from synced artifacts
 			if projectID != nil {
 				var orgID uuid.UUID
-				w.pool.QueryRow(ctx,
+				if err := w.pool.QueryRow(ctx,
 					`SELECT organization_id FROM projects WHERE id = $1`, projectID,
-				).Scan(&orgID)
-
-				// Expected artifact path: /tmp/aiwx-artifacts/<orgID>/<projectID>/
-				projectDir := filepath.Join("/tmp/aiwx-artifacts", orgID.String(), projectID.String())
-				if _, err := os.Stat(projectDir); err == nil {
-					spec.ProjectDir = projectDir
+				).Scan(&orgID); err == nil {
+					// Expected artifact path: /tmp/aiwx-artifacts/<orgID>/<projectID>/
+					projectDir := filepath.Join("/tmp", "aiwx-artifacts", orgID.String(), projectID.String())
+					if _, err := os.Stat(projectDir); err == nil {
+						spec.ProjectDir = projectDir
+					}
 				}
 			}
 
 			// Load inventory path if set
 			if inventoryID != nil {
 				var invName *string
-				w.pool.QueryRow(ctx,
+				if err := w.pool.QueryRow(ctx,
 					`SELECT name FROM inventories WHERE id = $1`, inventoryID,
-				).Scan(&invName)
-				if invName != nil {
+				).Scan(&invName); err == nil && invName != nil {
 					spec.Inventory = *invName
 				}
 			}
@@ -220,5 +227,5 @@ func (w *Worker) loadSpec(ctx context.Context, job *domain.Job) (*JobSpec, error
 		}
 	}
 
-	return spec, nil
+	return spec
 }

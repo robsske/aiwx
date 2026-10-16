@@ -22,10 +22,10 @@ import (
 type Status string
 
 const (
-	StatusPending Status = "pending"
-	StatusRunning Status = "running"
-	StatusSuccess Status = "success"
-	StatusFailed  Status = "failed"
+	StatusPending  Status = "pending"
+	StatusRunning  Status = "running"
+	StatusSuccess  Status = "success"
+	StatusFailed   Status = "failed"
 	StatusCanceled Status = "canceled"
 )
 
@@ -66,9 +66,9 @@ type ProjectRepo interface {
 
 // Worker synchronizes projects from Git repositories.
 type Worker struct {
-	repo      ProjectRepo
-	logger    *slog.Logger
-	workDir   string
+	repo         ProjectRepo
+	logger       *slog.Logger
+	workDir      string
 	artifactsDir string
 }
 
@@ -110,16 +110,16 @@ func (w *Worker) Sync(ctx context.Context, projectID uuid.UUID) (*SyncResult, er
 		} else {
 			result.Status = StatusSuccess
 		}
-		w.repo.UpdateSyncStatus(ctx, projectID, result.Status, result.Revision, result.ArtifactPath, result.Error)
+		_ = w.repo.UpdateSyncStatus(ctx, projectID, result.Status, result.Revision, result.ArtifactPath, result.Error)
 	}()
 
 	// Create working directory
 	workPath := filepath.Join(w.workDir, projectID.String())
-	if err := os.MkdirAll(workPath, 0755); err != nil {
+	if err := os.MkdirAll(workPath, 0o755); err != nil {
 		result.Error = fmt.Sprintf("create work dir: %v", err)
 		return result, err
 	}
-	defer os.RemoveAll(workPath)
+	defer func() { _ = os.RemoveAll(workPath) }()
 
 	// Clone or fetch
 	if err := w.cloneOrFetch(ctx, project, workPath); err != nil {
@@ -190,7 +190,7 @@ func (w *Worker) getCommitSHA(ctx context.Context, workPath string) (string, err
 func (w *Worker) createArtifact(ctx context.Context, project *Project, workPath, commitSHA string) (string, string, error) {
 	// Create artifact directory
 	artifactDir := filepath.Join(w.artifactsDir, project.OrganizationID.String(), project.ID.String())
-	if err := os.MkdirAll(artifactDir, 0755); err != nil {
+	if err := os.MkdirAll(artifactDir, 0o755); err != nil {
 		return "", "", err
 	}
 
@@ -273,7 +273,7 @@ func NewScheduler(worker *Worker, interval time.Duration, logger *slog.Logger) *
 	}
 }
 
-// Run starts the scheduler loop. Blocks until ctx is cancelled.
+// Run starts the scheduler loop. Blocks until ctx is canceled.
 func (s *Scheduler) Run(ctx context.Context) error {
 	ticker := time.NewTicker(s.interval)
 	defer ticker.Stop()

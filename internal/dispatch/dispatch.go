@@ -8,16 +8,17 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
 	"github.com/rverhe/aiwx/internal/domain"
 	"github.com/rverhe/aiwx/internal/outbox"
 )
 
 // JobStateTransition represents a job state machine transition.
 type JobStateTransition struct {
-	From      domain.JobStatus
-	To        domain.JobStatus
-	Owner     string // "api", "scheduler", "dispatcher", "reconciler"
-	Reason    string
+	From   domain.JobStatus
+	To     domain.JobStatus
+	Owner  string // "api", "scheduler", "dispatcher", "reconciler"
+	Reason string
 }
 
 // StateMachine defines legal job state transitions.
@@ -43,9 +44,9 @@ var StateMachine = map[domain.JobStatus][]domain.JobStatus{
 	},
 	// Terminal states have no transitions
 	domain.JobStatusSuccessful: {},
-	domain.JobStatusFailed:    {},
-	domain.JobStatusError:     {},
-	domain.JobStatusCanceled:  {},
+	domain.JobStatusFailed:     {},
+	domain.JobStatusError:      {},
+	domain.JobStatusCanceled:   {},
 }
 
 // IsValidTransition checks if a state transition is legal.
@@ -204,7 +205,7 @@ func NewReconciler(jobs JobRepository, kube KubeClient, obs *outbox.Store, logge
 	}
 }
 
-// Run starts the reconciler loop. Blocks until ctx is cancelled.
+// Run starts the reconciler loop. Blocks until ctx is canceled.
 func (r *Reconciler) Run(ctx context.Context) error {
 	ticker := time.NewTicker(r.interval)
 	defer ticker.Stop()

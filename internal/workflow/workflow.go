@@ -24,27 +24,27 @@ const (
 type NodeStatus string
 
 const (
-	NodeStatusPending   NodeStatus = "pending"
-	NodeStatusRunning   NodeStatus = "running"
-	NodeStatusSuccess   NodeStatus = "success"
-	NodeStatusFailed    NodeStatus = "failed"
-	NodeStatusSkipped   NodeStatus = "skipped"
-	NodeStatusWaiting   NodeStatus = "waiting" // waiting for approval
+	NodeStatusPending NodeStatus = "pending"
+	NodeStatusRunning NodeStatus = "running"
+	NodeStatusSuccess NodeStatus = "success"
+	NodeStatusFailed  NodeStatus = "failed"
+	NodeStatusSkipped NodeStatus = "skipped"
+	NodeStatusWaiting NodeStatus = "waiting" // waiting for approval
 )
 
 // Node represents a single node in a workflow.
 type Node struct {
-	ID          uuid.UUID       `json:"id"`
-	Name        string          `json:"name"`
-	Type        NodeType        `json:"type"`
-	JobTemplate *uuid.UUID      `json:"job_template_id,omitempty"`
-	Approval    *ApprovalConfig `json:"approval,omitempty"`
+	ID          uuid.UUID        `json:"id"`
+	Name        string           `json:"name"`
+	Type        NodeType         `json:"type"`
+	JobTemplate *uuid.UUID       `json:"job_template_id,omitempty"`
+	Approval    *ApprovalConfig  `json:"approval,omitempty"`
 	Condition   *ConditionConfig `json:"condition,omitempty"`
-	Status      NodeStatus      `json:"status"`
-	JobID       *uuid.UUID      `json:"job_id,omitempty"`
-	StartedAt   *time.Time      `json:"started_at,omitempty"`
-	FinishedAt  *time.Time      `json:"finished_at,omitempty"`
-	Error       string          `json:"error,omitempty"`
+	Status      NodeStatus       `json:"status"`
+	JobID       *uuid.UUID       `json:"job_id,omitempty"`
+	StartedAt   *time.Time       `json:"started_at,omitempty"`
+	FinishedAt  *time.Time       `json:"finished_at,omitempty"`
+	Error       string           `json:"error,omitempty"`
 }
 
 // ApprovalConfig configures an approval node.
@@ -78,12 +78,12 @@ type Workflow struct {
 
 // WorkflowRun represents an execution of a workflow.
 type WorkflowRun struct {
-	ID         uuid.UUID `json:"id"`
-	WorkflowID uuid.UUID `json:"workflow_id"`
-	Status     string    `json:"status"`
-	Nodes      []Node    `json:"nodes"`
-	Edges      []Edge    `json:"edges"`
-	StartedAt  time.Time `json:"started_at"`
+	ID         uuid.UUID  `json:"id"`
+	WorkflowID uuid.UUID  `json:"workflow_id"`
+	Status     string     `json:"status"`
+	Nodes      []Node     `json:"nodes"`
+	Edges      []Edge     `json:"edges"`
+	StartedAt  time.Time  `json:"started_at"`
 	FinishedAt *time.Time `json:"finished_at,omitempty"`
 }
 
