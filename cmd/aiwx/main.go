@@ -7,17 +7,22 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
 	"github.com/rverhe/aiwx/internal/api"
 	"github.com/rverhe/aiwx/internal/auth"
+	"github.com/rverhe/aiwx/internal/dispatch"
+	"github.com/rverhe/aiwx/internal/events"
+	"github.com/rverhe/aiwx/internal/metrics"
 	"github.com/rverhe/aiwx/internal/outbox"
 	"github.com/rverhe/aiwx/internal/rbac"
 	"github.com/rverhe/aiwx/internal/reconcile"
 	"github.com/rverhe/aiwx/internal/repository"
 	"github.com/rverhe/aiwx/internal/security"
 	"github.com/rverhe/aiwx/internal/service"
+	"github.com/rverhe/aiwx/internal/workflow"
 )
 
 func main() {
@@ -58,10 +63,8 @@ func main() {
 	outboxStore := outbox.NewStore(db.Pool)
 	checker := rbac.New(repos.RoleAssignments)
 
-	// Set up project sync worker
 	syncAdapter := api.NewGitSyncAdapter(repos.Projects, logger)
 
-	// Credential encryption at rest (AES-GCM)
 	encSecret := os.Getenv("CRED_ENC_KEY")
 	if encSecret == "" {
 		encSecret = cfg.JWTSecret
@@ -73,21 +76,84 @@ func main() {
 	}
 	repos.SetCredentialCrypto(encryptor)
 
-	// Brute-force protection on login
 	authLimiter := security.NewRateLimiter(10, time.Minute)
 
+	// ─── NATS JetStream + outbox relay ─────────────────────────────────────────
+	var nat *events.Client
+	natsReady := func() bool { return false }
+	if os.Getenv("AIWX_ALLOW_NO_NATS") != "1" {
+		nat, err = events.NewClient(events.Config{URL: cfg.NATSURL})
+		if err != nil {
+			logger.Error("failed to connect to NATS", "url", cfg.NATSURL, "error", err)
+			os.Exit(1)
+		}
+		defer nat.Close()
+		natsReady = nat.IsConnected
+
+		natPub := events.NewNATSPublisher(nat)
+		relayPublisher := outbox.PublishFunc(func(ctx context.Context, e outbox.Event) error {
+			metrics.NATSPublishedTotal.Inc()
+			if err := natPub.Publish(ctx, events.OutboxEvent{
+				ID:             e.ID,
+				EventType:      e.EventType,
+				AggregateType:  e.AggregateType,
+				AggregateID:    e.AggregateID,
+				Payload:        e.Payload,
+				IdempotencyKey: e.IdempotencyKey,
+				CreatedAt:      e.CreatedAt,
+			}); err != nil {
+				metrics.RecordOutboxFailed()
+				return err
+			}
+			metrics.RecordOutboxPublished()
+			return nil
+		})
+
+		outboxInterval := durationEnv("AIWX_OUTBOX_INTERVAL", time.Second)
+		outboxBatch := intEnv("AIWX_OUTBOX_BATCH", 50)
+		relay := outbox.NewRelay(outboxStore, relayPublisher, outboxBatch, outboxInterval, logger)
+		go func() {
+			logger.Info("starting outbox relay",
+				"interval", outboxInterval, "batch", outboxBatch)
+			if err := relay.Run(context.Background()); err != nil {
+				logger.Error("outbox relay stopped", "error", err)
+			}
+		}()
+	} else {
+		logger.Warn("NATS disabled (AIWX_ALLOW_NO_NATS=1); jobs rely on fallback poll only")
+	}
+
+	// ─── Job execution ─────────────────────────────────────────────────────────
+	ansiblePath := os.Getenv("ANSIBLE_PLAYBOOK")
+	if ansiblePath == "" {
+		ansiblePath = "/home/rverhe/aiwx/.venv/bin/ansible-playbook"
+	}
+	artifactsDir := os.Getenv("AIWX_ARTIFACTS_DIR")
+	if artifactsDir == "" {
+		artifactsDir = "/tmp/aiwx-artifacts"
+	}
+	runner := service.NewLocalRunner(ansiblePath, artifactsDir, repos.JobLogs)
+	jobStore := service.NewJobStore(repos.Jobs, outboxStore)
+	jobTimeout := durationEnv("AIWX_JOB_TIMEOUT", 30*time.Minute)
+	exec := service.NewExecutor(db.Pool, jobStore, runner, logger, jobTimeout)
+
+	// ─── Workflow runner ───────────────────────────────────────────────────────
+	wfRunner := workflow.NewRunner(repos.Workflows, repos.Jobs, outboxStore, logger)
+
 	router := api.NewRouter(api.Deps{
-		Logger:      logger,
-		DB:          db,
-		Repos:       repos,
-		Extractor:   extractor,
-		Issuer:      tokenIssuer,
-		Outbox:      outboxStore,
-		Checker:     checker,
-		SyncWorker:  syncAdapter,
-		Config:      cfg,
-		Encryptor:   encryptor,
-		AuthLimiter: authLimiter.Middleware,
+		Logger:         logger,
+		DB:             db,
+		Repos:          repos,
+		Extractor:      extractor,
+		Issuer:         tokenIssuer,
+		Outbox:         outboxStore,
+		Checker:        checker,
+		SyncWorker:     syncAdapter,
+		Config:         cfg,
+		Encryptor:      encryptor,
+		AuthLimiter:    authLimiter.Middleware,
+		NATSReady:      natsReady,
+		WorkflowRunner: wfRunner,
 	})
 
 	srv := &http.Server{
@@ -98,33 +164,43 @@ func main() {
 		IdleTimeout:  60 * time.Second,
 	}
 
-	// Graceful shutdown
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	// Start job worker with real ansible-playbook runner
-	ansiblePath := os.Getenv("ANSIBLE_PLAYBOOK")
-	if ansiblePath == "" {
-		ansiblePath = "/home/rverhe/aiwx/.venv/bin/ansible-playbook"
+	// NATS dispatcher (primary job execution path)
+	if nat != nil {
+		dispatcher := dispatch.NewConsumer(nat, exec, logger)
+		go func() {
+			logger.Info("starting NATS job dispatcher", "durable", "aiwx-dispatcher")
+			if err := dispatcher.Run(ctx); err != nil && err != context.Canceled {
+				logger.Error("NATS job dispatcher failed", "error", err)
+			}
+		}()
+
+		wfConsumer := workflow.NewEventConsumer(nat, wfRunner, logger)
+		go func() {
+			logger.Info("starting workflow event consumer", "durable", "aiwx-workflow")
+			if err := wfConsumer.Run(ctx); err != nil && err != context.Canceled {
+				logger.Error("workflow event consumer failed", "error", err)
+			}
+		}()
 	}
-	artifactsDir := os.Getenv("AIWX_ARTIFACTS_DIR")
-	if artifactsDir == "" {
-		artifactsDir = "/tmp/aiwx-artifacts"
-	}
-	runner := service.NewLocalRunner(
-		ansiblePath,
-		artifactsDir,
-		repos.JobLogs,
-	)
-	worker := service.NewWorker(db.Pool, runner, logger)
+
+	// Slow fallback pollers (NATS outage / lag safety net)
+	fallbackInterval := durationEnv("AIWX_WORKER_POLL_FALLBACK", 30*time.Second)
+	poller := service.NewFallbackPoller(exec, fallbackInterval, logger)
 	go func() {
-		logger.Info("starting job worker", "ansible", ansiblePath)
-		if err := worker.Run(ctx); err != nil && err != context.Canceled {
-			logger.Error("worker failed", "error", err)
+		if err := poller.Run(ctx); err != nil && err != context.Canceled {
+			logger.Error("fallback job poller failed", "error", err)
+		}
+	}()
+	go func() {
+		if err := wfRunner.RunFallback(ctx); err != nil && err != context.Canceled {
+			logger.Error("workflow fallback failed", "error", err)
 		}
 	}()
 
-	// Start reconciler (marks stale running jobs as failed after 30 min)
+	// Reconciler marks stale running jobs as failed after 30 min
 	rec := reconcile.New(repos.Jobs, logger, 30*time.Minute)
 	go func() {
 		logger.Info("starting reconciler")
@@ -158,6 +234,7 @@ type Config struct {
 	Port        int
 	DatabaseURL string
 	JWTSecret   string
+	NATSURL     string
 }
 
 func loadConfig() Config {
@@ -165,6 +242,10 @@ func loadConfig() Config {
 		Port:        8080,
 		DatabaseURL: os.Getenv("DATABASE_URL"),
 		JWTSecret:   os.Getenv("JWT_SECRET"),
+		NATSURL:     os.Getenv("NATS_URL"),
+	}
+	if cfg.NATSURL == "" {
+		cfg.NATSURL = "nats://localhost:4222"
 	}
 	if port := os.Getenv("PORT"); port != "" {
 		_, _ = fmt.Sscanf(port, "%d", &cfg.Port)
@@ -178,11 +259,34 @@ func loadConfig() Config {
 		fmt.Fprintln(os.Stderr, "FATAL: JWT_SECRET is required")
 		os.Exit(1)
 	}
-	// Enforce a minimum secret length in non-dev environments.
 	if len(cfg.JWTSecret) < 32 && os.Getenv("AIWX_ALLOW_WEAK_JWT") != "1" {
 		fmt.Fprintln(os.Stderr, "FATAL: JWT_SECRET must be at least 32 bytes (set AIWX_ALLOW_WEAK_JWT=1 to override in dev)")
 		os.Exit(1)
 	}
 
 	return cfg
+}
+
+func durationEnv(key string, def time.Duration) time.Duration {
+	v := os.Getenv(key)
+	if v == "" {
+		return def
+	}
+	d, err := time.ParseDuration(v)
+	if err != nil {
+		return def
+	}
+	return d
+}
+
+func intEnv(key string, def int) int {
+	v := os.Getenv(key)
+	if v == "" {
+		return def
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil || n <= 0 {
+		return def
+	}
+	return n
 }

@@ -28,6 +28,15 @@ type Deps struct {
 	Config      any
 	Encryptor   CredentialCryptor
 	AuthLimiter HTTPMiddleware
+	// WorkflowRunner launches and advances workflow jobs (event-driven).
+	WorkflowRunner WorkflowStarter
+	// NATSReady reports whether the message bus is connected (optional).
+	NATSReady func() bool
+}
+
+// WorkflowStarter starts a workflow job run asynchronously.
+type WorkflowStarter interface {
+	StartWorkflow(ctx context.Context, workflowJobID uuid.UUID) error
 }
 
 // CredentialCryptor encrypts/decrypts credential secrets at rest.
@@ -224,6 +233,13 @@ func handleReadyz(deps Deps) http.HandlerFunc {
 			writeJSON(w, http.StatusServiceUnavailable, map[string]string{
 				"status": "unavailable",
 				"error":  "database",
+			})
+			return
+		}
+		if deps.NATSReady != nil && !deps.NATSReady() {
+			writeJSON(w, http.StatusServiceUnavailable, map[string]string{
+				"status": "unavailable",
+				"error":  "nats",
 			})
 			return
 		}

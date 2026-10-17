@@ -274,6 +274,19 @@ func (d *Deps) handleCancelJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Enqueue outbox event so workflow/SSE consumers observe the cancellation.
+	if d.Outbox != nil {
+		_ = d.Outbox.Enqueue(r.Context(), "job.canceled", "job", id,
+			map[string]any{
+				"job_id":          id.String(),
+				"organization_id": job.OrganizationID.String(),
+				"status":          "canceled",
+				"reason":          "canceled by user",
+			},
+			"job-status-"+id.String()+"-canceled",
+		)
+	}
+
 	// Create job event
 	_, _ = d.Repos.JobEvents.Create(r.Context(), id, "job.canceled", map[string]any{
 		"reason": "user request",

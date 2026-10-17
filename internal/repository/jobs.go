@@ -318,12 +318,15 @@ func (r *JobRepo) CreateAndEnqueue(ctx context.Context, jobTemplateID *uuid.UUID
 
 	// Insert outbox event in same tx
 	if outbox != nil {
+		payload := map[string]any{
+			"job_id":          job.ID.String(),
+			"organization_id": orgID.String(),
+		}
+		if jobTemplateID != nil {
+			payload["job_template_id"] = jobTemplateID.String()
+		}
 		if err := outbox.Insert(ctx, tx, "job.created", "job", job.ID,
-			map[string]any{
-				"job_id":          job.ID.String(),
-				"job_template_id": jobTemplateID.String(),
-				"organization_id": orgID.String(),
-			},
+			payload,
 			"job-launch-"+job.ID.String(),
 		); err != nil {
 			return nil, fmt.Errorf("insert outbox event: %w", err)
@@ -331,10 +334,14 @@ func (r *JobRepo) CreateAndEnqueue(ctx context.Context, jobTemplateID *uuid.UUID
 	}
 
 	// Insert first job event
+	jobEventData := map[string]any{}
+	if jobTemplateID != nil {
+		jobEventData["template_id"] = jobTemplateID.String()
+	}
 	_, err = tx.Exec(ctx,
 		`INSERT INTO job_events (job_id, event_type, event_data, created_at)
 		 VALUES ($1, $2, $3, $4)`,
-		job.ID, "job.created", map[string]any{"template_id": jobTemplateID.String()}, job.CreatedAt,
+		job.ID, "job.created", jobEventData, job.CreatedAt,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("insert job event: %w", err)
@@ -394,6 +401,106 @@ func (r *JobRepo) UpdateStatus(ctx context.Context, id uuid.UUID, status domain.
 		id, status, now,
 	)
 	return err
+}
+
+// UpdateStatusAndEnqueue updates job status and writes a matching outbox event
+// in the same transaction. Terminal states are immutable.
+func (r *JobRepo) UpdateStatusAndEnqueue(ctx context.Context, id uuid.UUID, status domain.JobStatus, reason string, ob OutboxInserter) error {
+	now := time.Now()
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	tag, err := tx.Exec(ctx,
+		`UPDATE jobs SET status = $2, updated_at = $3,
+		        started_at = CASE WHEN $2 = 'running' AND started_at IS NULL THEN $3 ELSE started_at END,
+		        finished_at = CASE WHEN $2 IN ('successful', 'failed', 'error', 'canceled') THEN $3 ELSE finished_at END
+		 WHERE id = $1
+		   AND status NOT IN ('successful', 'failed', 'error', 'canceled')`,
+		id, status, now,
+	)
+	if err != nil {
+		return fmt.Errorf("update job status: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		// Already terminal or missing — no outbox event.
+		return nil
+	}
+
+	// Persist structured job event (audit trail).
+	eventData := map[string]any{"reason": reason}
+	_, err = tx.Exec(ctx,
+		`INSERT INTO job_events (job_id, event_type, event_data, created_at)
+		 VALUES ($1, $2, $3, $4)`,
+		id, "job."+string(status), eventData, now,
+	)
+	if err != nil {
+		return fmt.Errorf("insert job event: %w", err)
+	}
+
+	if ob != nil {
+		var orgID uuid.UUID
+		_ = tx.QueryRow(ctx, `SELECT organization_id FROM jobs WHERE id = $1`, id).Scan(&orgID)
+		eventType := "job." + string(status)
+		payload := map[string]any{
+			"job_id":          id.String(),
+			"organization_id": orgID.String(),
+			"status":          string(status),
+			"reason":          reason,
+		}
+		if err := ob.Insert(ctx, tx, eventType, "job", id, payload,
+			fmt.Sprintf("job-status-%s-%s", id, status),
+		); err != nil {
+			return fmt.Errorf("insert outbox event: %w", err)
+		}
+	}
+
+	return tx.Commit(ctx)
+}
+
+// ClaimPendingByID claims a specific pending job for execution (idempotent).
+// Returns nil when the job is missing or already claimed/terminal.
+func (r *JobRepo) ClaimPendingByID(ctx context.Context, id uuid.UUID) (*domain.Job, error) {
+	job := &domain.Job{}
+	err := r.pool.QueryRow(ctx,
+		`UPDATE jobs SET status = 'running', started_at = now(), updated_at = now()
+		 WHERE id = $1
+		   AND status IN ('new', 'pending', 'waiting')
+		 RETURNING id, organization_id, job_template_id, status, created_at, updated_at`,
+		id,
+	).Scan(&job.ID, &job.OrganizationID, &job.JobTemplateID, &job.Status, &job.CreatedAt, &job.UpdatedAt)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return job, nil
+}
+
+// ClaimNextPending claims the oldest pending job (fallback poll path).
+func (r *JobRepo) ClaimNextPending(ctx context.Context) (*domain.Job, error) {
+	job := &domain.Job{}
+	err := r.pool.QueryRow(ctx,
+		`UPDATE jobs SET status = 'running', started_at = now(), updated_at = now()
+		 WHERE id = (
+		   SELECT id FROM jobs
+		   WHERE status IN ('new', 'pending', 'waiting')
+		   ORDER BY created_at
+		   FOR UPDATE SKIP LOCKED
+		   LIMIT 1
+		 )
+		 RETURNING id, organization_id, job_template_id, status, created_at, updated_at`,
+	).Scan(&job.ID, &job.OrganizationID, &job.JobTemplateID, &job.Status, &job.CreatedAt, &job.UpdatedAt)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return job, nil
 }
 
 func (r *JobRepo) UpdateK8sJobName(ctx context.Context, id uuid.UUID, k8sJobName string) error {

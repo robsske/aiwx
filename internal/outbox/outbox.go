@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/google/uuid"
@@ -174,21 +175,40 @@ type Publisher interface {
 	Publish(ctx context.Context, event Event) error
 }
 
+// PublishFunc adapts a function to the Publisher interface.
+type PublishFunc func(ctx context.Context, event Event) error
+
+// Publish implements Publisher.
+func (f PublishFunc) Publish(ctx context.Context, event Event) error {
+	return f(ctx, event)
+}
+
 // Relay relays outbox events to the message bus.
 type Relay struct {
 	store     *Store
 	publisher Publisher
 	batchSize int
 	interval  time.Duration
+	logger    *slog.Logger
 }
 
 // NewRelay creates a new outbox relay.
-func NewRelay(store *Store, publisher Publisher, batchSize int, interval time.Duration) *Relay {
+func NewRelay(store *Store, publisher Publisher, batchSize int, interval time.Duration, logger *slog.Logger) *Relay {
+	if batchSize <= 0 {
+		batchSize = 50
+	}
+	if interval <= 0 {
+		interval = time.Second
+	}
+	if logger == nil {
+		logger = slog.Default()
+	}
 	return &Relay{
 		store:     store,
 		publisher: publisher,
 		batchSize: batchSize,
 		interval:  interval,
+		logger:    logger,
 	}
 }
 
@@ -203,8 +223,8 @@ func (r *Relay) Run(ctx context.Context) error {
 			return ctx.Err()
 		case <-ticker.C:
 			if err := r.processBatch(ctx); err != nil {
-				// Log but continue - we'll retry on next tick
-				fmt.Printf("outbox relay error: %v\n", err)
+				// Log but continue — unpublished rows remain and retry next tick.
+				r.logger.Error("outbox relay batch failed", "error", err)
 			}
 		}
 	}
@@ -223,17 +243,17 @@ func (r *Relay) processBatch(ctx context.Context) error {
 
 	for _, event := range events {
 		if err := r.publisher.Publish(ctx, event); err != nil {
-			// Mark as failed and continue with next event
 			if markErr := r.store.MarkFailed(ctx, event.ID, err.Error()); markErr != nil {
 				return fmt.Errorf("mark failed (publish: %v, mark: %w)", err, markErr)
 			}
+			r.logger.Warn("outbox publish failed", "outbox_id", event.ID, "event_type", event.EventType, "error", err)
 			continue
 		}
 
 		if err := r.store.MarkPublished(ctx, event.ID); err != nil {
 			return fmt.Errorf("mark published: %w", err)
 		}
+		r.logger.Debug("outbox published", "outbox_id", event.ID, "event_type", event.EventType)
 	}
-
 	return nil
 }

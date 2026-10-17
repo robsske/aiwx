@@ -13,154 +13,113 @@ import (
 	"github.com/rverhe/aiwx/internal/domain"
 )
 
-// JobStore provides job lifecycle operations for the worker.
-type JobStore interface {
-	ClaimPending(ctx context.Context) (*domain.Job, error)
-	MarkRunning(ctx context.Context, jobID string) error
-	MarkFinished(ctx context.Context, jobID string, status domain.JobStatus, exitCode *int) error
-	AddEvent(ctx context.Context, jobID string, eventType string, data map[string]any) error
+// OutboxInserter writes outbox rows inside a transaction (repository.OutboxInserter).
+type OutboxInserter interface {
+	Insert(ctx context.Context, tx interface{ /* pgx.Tx */ }, eventType, aggregateType string, aggregateID uuid.UUID, payload map[string]any, idempotencyKey string) error
 }
 
-// Worker polls for pending jobs and executes them.
-type Worker struct {
-	pool     *pgxpool.Pool
-	runner   JobRunner
-	logger   *slog.Logger
-	interval time.Duration
-	timeout  time.Duration
+// JobRepository is the job persistence surface used by the executor.
+// Concrete type is *repository.JobRepo; wired in cmd/aiwx via a thin adapter
+// because repository.OutboxInserter takes a concrete pgx.Tx.
+type JobRepository interface {
+	ClaimPendingByID(ctx context.Context, id uuid.UUID) (*domain.Job, error)
+	ClaimNextPending(ctx context.Context) (*domain.Job, error)
+	FinishJob(ctx context.Context, id uuid.UUID, status domain.JobStatus, reason string) error
+	GetByID(ctx context.Context, id uuid.UUID) (*domain.Job, error)
 }
 
-// NewWorker creates a job worker.
-func NewWorker(pool *pgxpool.Pool, runner JobRunner, logger *slog.Logger) *Worker {
-	return &Worker{
-		pool:     pool,
-		runner:   runner,
-		logger:   logger,
-		interval: 2 * time.Second,
-		timeout:  30 * time.Minute,
+// Executor claims jobs and runs them via a JobRunner.
+// Used by both the NATS dispatcher and the slow fallback poller.
+type Executor struct {
+	pool    *pgxpool.Pool
+	jobs    JobRepository
+	runner  JobRunner
+	logger  *slog.Logger
+	timeout time.Duration
+}
+
+// NewExecutor creates a job executor. pool is used for spec loading.
+func NewExecutor(pool *pgxpool.Pool, jobs JobRepository, runner JobRunner, logger *slog.Logger, timeout time.Duration) *Executor {
+	if timeout <= 0 {
+		timeout = 30 * time.Minute
+	}
+	if logger == nil {
+		logger = slog.Default()
+	}
+	return &Executor{
+		pool:    pool,
+		jobs:    jobs,
+		runner:  runner,
+		logger:  logger,
+		timeout: timeout,
 	}
 }
 
-// Run starts the worker loop. Blocks until ctx is canceled.
-func (w *Worker) Run(ctx context.Context) error {
-	ticker := time.NewTicker(w.interval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-ticker.C:
-			if err := w.processOne(ctx); err != nil {
-				w.logger.Error("worker error", "error", err)
-			}
-		}
+// ExecuteByID claims and runs a specific job. Claim is idempotent.
+// Returns true when this call actually executed the job.
+func (e *Executor) ExecuteByID(ctx context.Context, jobID uuid.UUID) (bool, error) {
+	job, err := e.jobs.ClaimPendingByID(ctx, jobID)
+	if err != nil {
+		return false, err
 	}
+	if job == nil {
+		return false, nil
+	}
+	e.run(ctx, job)
+	return true, nil
 }
 
-func (w *Worker) processOne(ctx context.Context) error {
-	// Claim one pending job with FOR UPDATE SKIP LOCKED
-	job, err := w.claimPending(ctx)
-	if err != nil || job == nil {
-		return err
+// ExecuteNext claims and runs the oldest pending job (fallback poll path).
+func (e *Executor) ExecuteNext(ctx context.Context) (bool, error) {
+	job, err := e.jobs.ClaimNextPending(ctx)
+	if err != nil {
+		return false, err
 	}
-
-	w.logger.Info("processing job", "job_id", job.ID, "template_id", job.JobTemplateID)
-
-	// Mark running
-	if err := w.updateStatus(ctx, job.ID, domain.JobStatusRunning); err != nil {
-		return err
+	if job == nil {
+		return false, nil
 	}
+	e.run(ctx, job)
+	return true, nil
+}
 
-	// Load spec from template
-	spec := w.loadSpec(ctx, job)
+func (e *Executor) run(ctx context.Context, job *domain.Job) {
+	e.logger.Info("processing job", "job_id", job.ID, "template_id", job.JobTemplateID)
 
-	// Run with timeout
-	runCtx, cancel := context.WithTimeout(ctx, w.timeout)
+	spec := e.loadSpec(ctx, job)
+
+	runCtx, cancel := context.WithTimeout(ctx, e.timeout)
 	defer cancel()
 
-	w.logger.Info("running job",
+	e.logger.Info("running job",
 		"job_id", job.ID,
 		"playbook", spec.Playbook,
 		"project_dir", spec.ProjectDir,
 		"inventory", spec.Inventory,
 	)
 
-	result, err := w.runner.Run(runCtx, job, spec)
+	result, err := e.runner.Run(runCtx, job, spec)
 	if err != nil {
-		w.logger.Error("job run failed", "job_id", job.ID, "error", err)
-		if uerr := w.updateStatus(ctx, job.ID, domain.JobStatusFailed); uerr != nil {
-			w.logger.Error("update status failed", "job_id", job.ID, "error", uerr)
+		e.logger.Error("job run failed", "job_id", job.ID, "error", err)
+		if uerr := e.jobs.FinishJob(ctx, job.ID, domain.JobStatusFailed, "runner error: "+err.Error()); uerr != nil {
+			e.logger.Error("finish job failed", "job_id", job.ID, "error", uerr)
 		}
-		if aerr := w.addEvent(ctx, job.ID, "job.failed", map[string]any{"error": err.Error()}); aerr != nil {
-			w.logger.Error("add event failed", "job_id", job.ID, "error", aerr)
-		}
-		return nil
+		return
 	}
 
-	// Write result
 	if result.ExitCode == 0 {
-		if uerr := w.updateStatus(ctx, job.ID, domain.JobStatusSuccessful); uerr != nil {
-			w.logger.Error("update status failed", "job_id", job.ID, "error", uerr)
+		if uerr := e.jobs.FinishJob(ctx, job.ID, domain.JobStatusSuccessful, "exit 0"); uerr != nil {
+			e.logger.Error("finish job failed", "job_id", job.ID, "error", uerr)
 		}
-		if aerr := w.addEvent(ctx, job.ID, "job.successful", map[string]any{"exit_code": result.ExitCode}); aerr != nil {
-			w.logger.Error("add event failed", "job_id", job.ID, "error", aerr)
-		}
-	} else {
-		if uerr := w.updateStatus(ctx, job.ID, domain.JobStatusFailed); uerr != nil {
-			w.logger.Error("update status failed", "job_id", job.ID, "error", uerr)
-		}
-		if aerr := w.addEvent(ctx, job.ID, "job.failed", map[string]any{"exit_code": result.ExitCode}); aerr != nil {
-			w.logger.Error("add event failed", "job_id", job.ID, "error", aerr)
-		}
+		return
 	}
-
-	return nil
-}
-
-func (w *Worker) claimPending(ctx context.Context) (*domain.Job, error) {
-	job := &domain.Job{}
-	err := w.pool.QueryRow(ctx,
-		`UPDATE jobs SET status = 'running', started_at = now(), updated_at = now()
-		 WHERE id = (
-		   SELECT id FROM jobs
-		   WHERE status = 'pending'
-		   ORDER BY created_at
-		   FOR UPDATE SKIP LOCKED
-		   LIMIT 1
-		 )
-		 RETURNING id, organization_id, job_template_id, status, created_at`,
-	).Scan(&job.ID, &job.OrganizationID, &job.JobTemplateID, &job.Status, &job.CreatedAt)
-	if err != nil {
-		if err.Error() == "no rows in result set" {
-			return nil, nil
-		}
-		return nil, err
+	if uerr := e.jobs.FinishJob(ctx, job.ID, domain.JobStatusFailed, "non-zero exit"); uerr != nil {
+		e.logger.Error("finish job failed", "job_id", job.ID, "error", uerr)
 	}
-	return job, nil
 }
 
-func (w *Worker) updateStatus(ctx context.Context, jobID interface{ String() string }, status domain.JobStatus) error {
-	_, err := w.pool.Exec(ctx,
-		`UPDATE jobs SET status = $2, updated_at = now(),
-		        finished_at = CASE WHEN $2 IN ('successful', 'failed', 'error', 'canceled') THEN now() ELSE finished_at END
-		 WHERE id = $1`, jobID, status,
-	)
-	return err
-}
-
-func (w *Worker) addEvent(ctx context.Context, jobID interface{ String() string }, eventType string, data map[string]any) error {
-	_, err := w.pool.Exec(ctx,
-		`INSERT INTO job_events (job_id, event_type, event_data, created_at)
-		 VALUES ($1, $2, $3, now())`, jobID, eventType, data,
-	)
-	return err
-}
-
-func (w *Worker) loadSpec(ctx context.Context, job *domain.Job) *JobSpec {
+func (e *Executor) loadSpec(ctx context.Context, job *domain.Job) *JobSpec {
 	spec := &JobSpec{}
 
-	// Load from job template if present
 	if job.JobTemplateID != nil {
 		var playbook *string
 		var projectID *uuid.UUID
@@ -171,7 +130,7 @@ func (w *Worker) loadSpec(ctx context.Context, job *domain.Job) *JobSpec {
 		var jobTags string
 		var skipTags string
 
-		err := w.pool.QueryRow(ctx,
+		err := e.pool.QueryRow(ctx,
 			`SELECT playbook, project_id, inventory_id, limit_hosts, verbosity, forks, job_tags, skip_tags
 			 FROM job_templates WHERE id = $1`,
 			job.JobTemplateID,
@@ -186,13 +145,11 @@ func (w *Worker) loadSpec(ctx context.Context, job *domain.Job) *JobSpec {
 			spec.JobTags = jobTags
 			spec.SkipTags = skipTags
 
-			// Resolve project directory from synced artifacts
 			if projectID != nil {
 				var orgID uuid.UUID
-				if err := w.pool.QueryRow(ctx,
+				if err := e.pool.QueryRow(ctx,
 					`SELECT organization_id FROM projects WHERE id = $1`, projectID,
 				).Scan(&orgID); err == nil {
-					// Expected artifact path: /tmp/aiwx-artifacts/<orgID>/<projectID>/
 					projectDir := filepath.Join("/tmp", "aiwx-artifacts", orgID.String(), projectID.String())
 					if _, err := os.Stat(projectDir); err == nil {
 						spec.ProjectDir = projectDir
@@ -200,10 +157,9 @@ func (w *Worker) loadSpec(ctx context.Context, job *domain.Job) *JobSpec {
 				}
 			}
 
-			// Load inventory path if set
 			if inventoryID != nil {
 				var invName *string
-				if err := w.pool.QueryRow(ctx,
+				if err := e.pool.QueryRow(ctx,
 					`SELECT name FROM inventories WHERE id = $1`, inventoryID,
 				).Scan(&invName); err == nil && invName != nil {
 					spec.Inventory = *invName
@@ -212,9 +168,8 @@ func (w *Worker) loadSpec(ctx context.Context, job *domain.Job) *JobSpec {
 		}
 	}
 
-	// Load extra vars from job
 	var jobExtraVars map[string]any
-	err := w.pool.QueryRow(ctx,
+	err := e.pool.QueryRow(ctx,
 		`SELECT extra_vars FROM jobs WHERE id = $1`, job.ID,
 	).Scan(&jobExtraVars)
 	if err == nil && jobExtraVars != nil {
@@ -228,4 +183,39 @@ func (w *Worker) loadSpec(ctx context.Context, job *domain.Job) *JobSpec {
 	}
 
 	return spec
+}
+
+// FallbackPoller periodically claims leftover pending jobs (NATS outage / lag).
+type FallbackPoller struct {
+	exec     *Executor
+	interval time.Duration
+	logger   *slog.Logger
+}
+
+// NewFallbackPoller creates a slow poller. Interval defaults to 30s.
+func NewFallbackPoller(exec *Executor, interval time.Duration, logger *slog.Logger) *FallbackPoller {
+	if interval <= 0 {
+		interval = 30 * time.Second
+	}
+	if logger == nil {
+		logger = slog.Default()
+	}
+	return &FallbackPoller{exec: exec, interval: interval, logger: logger}
+}
+
+// Run blocks until ctx is canceled.
+func (p *FallbackPoller) Run(ctx context.Context) error {
+	ticker := time.NewTicker(p.interval)
+	defer ticker.Stop()
+	p.logger.Info("starting fallback job poller", "interval", p.interval)
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+			if _, err := p.exec.ExecuteNext(ctx); err != nil {
+				p.logger.Error("fallback poller error", "error", err)
+			}
+		}
+	}
 }

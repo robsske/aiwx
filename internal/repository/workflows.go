@@ -489,3 +489,89 @@ func (r *WorkflowRepo) UpdateJobStatus(ctx context.Context, jobID uuid.UUID, sta
 	`, jobID, status)
 	return err
 }
+
+// FindJobNodesByJobID returns workflow nodes that launched the given job.
+func (r *WorkflowRepo) FindJobNodesByJobID(ctx context.Context, jobID uuid.UUID) ([]domain.WorkflowJobNode, error) {
+	rows, err := r.pool.Query(ctx, `
+		SELECT id, workflow_job_id, workflow_node_id, job_template_id, job_id, name, status,
+		       error_message, started_at, finished_at
+		FROM workflow_job_nodes
+		WHERE job_id = $1
+	`, jobID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []domain.WorkflowJobNode
+	for rows.Next() {
+		var n domain.WorkflowJobNode
+		if err := rows.Scan(
+			&n.ID, &n.WorkflowJobID, &n.WorkflowNodeID, &n.JobTemplateID, &n.JobID, &n.Name, &n.Status,
+			&n.ErrorMessage, &n.StartedAt, &n.FinishedAt,
+		); err != nil {
+			return nil, err
+		}
+		out = append(out, n)
+	}
+	return out, rows.Err()
+}
+
+// ListActiveWorkflowJobIDs returns workflow jobs that are not terminal.
+func (r *WorkflowRepo) ListActiveWorkflowJobIDs(ctx context.Context) ([]uuid.UUID, error) {
+	rows, err := r.pool.Query(ctx, `
+		SELECT id FROM workflow_jobs
+		WHERE status NOT IN ('successful', 'failed', 'error', 'canceled')
+		ORDER BY created_at
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []uuid.UUID
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out = append(out, id)
+	}
+	return out, rows.Err()
+}
+
+// TryTransitionJobStatus atomically moves a workflow job to a new status only if
+// it is not already terminal. Returns true when the transition was applied.
+func (r *WorkflowRepo) TryTransitionJobStatus(ctx context.Context, jobID uuid.UUID, status string) (bool, error) {
+	tag, err := r.pool.Exec(ctx, `
+		UPDATE workflow_jobs
+		SET status=$2,
+		    started_at = CASE WHEN $2='running' AND started_at IS NULL THEN now() ELSE started_at END,
+		    finished_at = CASE WHEN $2 IN ('successful','failed','error','canceled') THEN now() ELSE finished_at END,
+		    updated_at=now()
+		WHERE id=$1
+		  AND status NOT IN ('successful', 'failed', 'error', 'canceled')
+	`, jobID, status)
+	if err != nil {
+		return false, err
+	}
+	return tag.RowsAffected() > 0, nil
+}
+
+// TryTransitionNodeStatus atomically moves a workflow node to a new status only
+// if it is not already terminal. Returns true when the transition was applied.
+func (r *WorkflowRepo) TryTransitionNodeStatus(ctx context.Context, nodeID uuid.UUID, status string, jobID *uuid.UUID, errMsg string) (bool, error) {
+	tag, err := r.pool.Exec(ctx, `
+		UPDATE workflow_job_nodes
+		SET status=$2, job_id=COALESCE($3, job_id), error_message=$4,
+		    started_at = CASE WHEN $2='running' THEN now() ELSE started_at END,
+		    finished_at = CASE WHEN $2 IN ('success','failed','skipped','successful','error','canceled') THEN now() ELSE finished_at END,
+		    updated_at=now()
+		WHERE id=$1
+		  AND status NOT IN ('success','successful','failed','skipped','error','canceled')
+	`, nodeID, status, jobID, errMsg)
+	if err != nil {
+		return false, err
+	}
+	return tag.RowsAffected() > 0, nil
+}

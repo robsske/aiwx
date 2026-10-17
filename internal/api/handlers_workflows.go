@@ -191,8 +191,17 @@ func (d *Deps) handleLaunchWorkflow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Kick off first wave of jobs (nodes with no inbound links) asynchronously
-	go d.runWorkflow(job.ID)
+	// Advance via the event-driven workflow runner (async first wave).
+	if d.WorkflowRunner != nil {
+		go func(id uuid.UUID) {
+			ctx := rContext()
+			if err := d.WorkflowRunner.StartWorkflow(ctx, id); err != nil {
+				d.Logger.Error("workflow start failed", "workflow_job_id", id, "error", err)
+			}
+		}(job.ID)
+	} else {
+		go d.runWorkflow(job.ID)
+	}
 
 	writeJSON(w, http.StatusCreated, job)
 }

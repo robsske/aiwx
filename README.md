@@ -30,11 +30,15 @@ A multi-tenant automation controller — a modern reimplementation of [AWX](http
 | **Multi-tenancy** | ✅ | Org isolation, cross-tenant access blocked |
 | **Projects** | ✅ | Git clone, branch tracking, commit SHA |
 | **Project Sync** | ✅ | Real `git clone`, stores artifacts |
-| **Credentials** | ✅ | Type-based, secret redaction |
+| **Credentials** | ✅ | Type-based, AES-GCM at rest, secret redaction |
 | **Job Templates** | ✅ | Link project + inventory + playbook |
 | **Job Execution** | ✅ | Real `ansible-playbook` runs |
 | **Job Logs** | ✅ | Full stdout/stderr capture |
 | **Job Events** | ✅ | Lifecycle events (created, running, successful, failed) |
+| **Transactional Outbox** | ✅ | Same-txn event writes, relayed to NATS JetStream |
+| **NATS Dispatch** | ✅ | Durable consumers execute jobs from the bus |
+| **Workflow Orchestration** | ✅ | AWX-style DAG with success/failure/always links |
+| **Event-driven Workflows** | ✅ | DAG advances from `job.*` bus events |
 | **Reconciler** | ✅ | Marks stale running jobs as failed |
 
 ### API
@@ -68,6 +72,12 @@ GET    /jobs/{id}           # Job details
 GET    /jobs/{id}/logs      # Job output (stdout/stderr)
 GET    /jobs/{id}/events    # Job lifecycle events
 POST   /jobs/{id}/cancel    # Cancel job
+
+GET    /workflow-templates  # List workflow templates
+POST   /workflow-templates  # Create workflow (nodes + links)
+POST   /workflow-templates/{id}/launch  # Launch workflow run
+GET    /workflow-jobs       # List workflow runs
+GET    /workflow-jobs/{id}  # Workflow run detail (DAG status)
 ```
 
 ### UI
@@ -79,6 +89,7 @@ React + TypeScript SPA ([shadcn/ui](https://ui.shadcn.com/) + Tailwind CSS 4) wi
 - Job Templates with launch
 - Jobs list with status badges
 - Job Detail with full Ansible output (terminal-style log view)
+- Workflow templates + visual DAG builder
 - Credentials management
 - Error states and loading indicators
 
@@ -86,27 +97,34 @@ React + TypeScript SPA ([shadcn/ui](https://ui.shadcn.com/) + Tailwind CSS 4) wi
 
 ### Prerequisites
 
-- Go 1.22+
+- Go 1.23+
 - Node.js 20+
-- Docker (for PostgreSQL)
+- Docker (PostgreSQL + NATS)
 - Python 3.12+ with `uv` (for Ansible)
 
-### 1. Start PostgreSQL
+### 1. Start PostgreSQL and NATS
 
 ```bash
+docker-compose up -d
+# or:
 docker run -d --name aiwx-postgres \
   -e POSTGRES_DB=aiwx \
   -e POSTGRES_USER=aiwx \
   -e POSTGRES_PASSWORD=aiwx \
   -p 5432:5432 \
   postgres:16-alpine
+
+docker run -d --name aiwx-nats \
+  -p 4222:4222 -p 8222:8222 \
+  nats:2.10-alpine -js -m 8222
 ```
 
 ### 2. Run Migrations
 
 ```bash
 docker exec -i aiwx-postgres psql -U aiwx -d aiwx < migrations/0001_init.up.sql
-docker exec aiwx-postgres psql -U aiwx -d aiwx -c "CREATE TABLE IF NOT EXISTS job_logs (job_id uuid NOT NULL, sequence bigint NOT NULL, content text NOT NULL, source text NOT NULL, created_at timestamptz NOT NULL DEFAULT now(), PRIMARY KEY (job_id, sequence));"
+docker exec -i aiwx-postgres psql -U aiwx -d aiwx < migrations/0002_awx_targeting.up.sql
+docker exec -i aiwx-postgres psql -U aiwx -d aiwx < migrations/0003_workflows.up.sql
 ```
 
 ### 3. Install Ansible
@@ -123,12 +141,15 @@ uv pip install ansible-core
 go build -o bin/aiwx ./cmd/aiwx
 
 DATABASE_URL="postgres://aiwx:aiwx@localhost:5432/aiwx?sslmode=disable" \
-JWT_SECRET="dev-secret-change-in-production" \
+JWT_SECRET="dev-secret-change-in-production-32bytes!!" \
+NATS_URL="nats://localhost:4222" \
 PORT=8080 \
 AIWX_SEED_ADMIN=1 \
 SEED_ADMIN_PASSWORD=admin \
 ./bin/aiwx
 ```
+
+> `JWT_SECRET` must be at least 32 bytes (set `AIWX_ALLOW_WEAK_JWT=1` for local experiments).
 
 ### 5. Run UI
 
@@ -162,35 +183,71 @@ Then in the UI:
 ## Architecture
 
 ```
-┌─────────────┐     ┌──────────────┐     ┌─────────────┐
-│   React UI  │────▶│   API (Go)   │────▶│ PostgreSQL  │
-└─────────────┘     └──────┬───────┘     └─────────────┘
-                           │
-                    ┌──────▼───────┐
-                    │   Worker     │
-                    │  (Go)        │
-                    └──────┬───────┘
-                           │
-                    ┌──────▼───────┐
-                    │ansible-play  │
-                    │  book        │
-                    └─────────────┘
+┌─────────────┐     ┌──────────────────────────────────────────┐
+│   React UI  │────▶│  API (Go modular monolith)               │
+└─────────────┘     │  auth · RBAC · workflows · SSE           │
+                    └──────┬───────────────────┬───────────────┘
+                           │ same txn          │
+                    ┌──────▼───────┐    ┌──────▼───────┐
+                    │ PostgreSQL   │    │ Outbox Relay │
+                    │ (source of   │    └──────┬───────┘
+                    │  truth)      │           │
+                    └──────▲───────┘    ┌──────▼───────────────┐
+                           │            │ NATS JetStream       │
+                           │            │ AIWX_JOB_EVENTS      │
+                           │            └──────┬───────────────┘
+                           │                   │ durable consumers
+                    ┌──────┴───────┐    ┌──────▼───────┐
+                    │  Reconciler  │    │  Dispatcher  │
+                    └──────────────┘    │  (runner)    │
+                                        └──────┬───────┘
+                                               │
+                                        ┌──────▼───────┐
+                                        │ansible-play  │
+                                        │  book        │
+                                        └──────────────┘
+
+Workflow engine consumes job.* events and advances the DAG.
+Slow 30s fallback pollers cover NATS outage / lag.
 ```
 
-- **API**: REST endpoints, JWT auth, RBAC
-- **Worker**: Polls for pending jobs, executes `ansible-playbook`
-- **Sync Worker**: Git clone + artifact creation
-- **Reconciler**: Marks stale jobs as failed
+- **API**: REST endpoints, JWT auth, RBAC, workflow templates
+- **Transactional outbox**: Job create + status transitions write events in the same DB transaction
+- **Outbox relay**: Publishes pending events to NATS JetStream with retry
+- **Dispatcher**: Durable consumer `aiwx-dispatcher` claims jobs (idempotent) and runs `ansible-playbook`
+- **Workflow engine**: Durable consumer `aiwx-workflow` advances DAGs from `job.*` terminal events
+- **Fallback pollers**: 30s claim/advance loops if the bus is unavailable
+- **Reconciler**: Marks stale running jobs as failed
+
+### Event bus
+
+| Stream | Subjects | Purpose |
+|--------|----------|---------|
+| `AIWX_JOB_EVENTS` | `aiwx.job.>` | Job lifecycle (`created`, `running`, `successful`, `failed`, …) |
+| `AIWX_PROJECT_EVENTS` | `aiwx.project.>` | Project sync started/completed/failed |
+| `AIWX_SYSTEM_EVENTS` | `aiwx.system.>` | System / credential access events |
+
+Envelope: `{ id, type, aggregate_type, aggregate_id, organization_id, payload, timestamp, idempotency_key }`
 
 ## Environment Variables
 
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `DATABASE_URL` | Yes | PostgreSQL connection string |
-| `JWT_SECRET` | Yes | Secret for signing JWT tokens |
+| `JWT_SECRET` | Yes | Secret for signing JWT tokens (≥ 32 bytes) |
+| `NATS_URL` | No | NATS URL (default: `nats://localhost:4222`) |
 | `PORT` | No | API port (default: 8080) |
 | `AIWX_SEED_ADMIN` | No | Set to `1` to seed admin user |
 | `SEED_ADMIN_PASSWORD` | No | Password for seeded admin |
+| `CRED_ENC_KEY` | No | AES-GCM key for credential encryption (falls back to `JWT_SECRET`) |
+| `AIWX_ALLOW_WEAK_JWT` | No | Set to `1` to allow short JWT secrets in dev |
+| `AIWX_ALLOW_NO_NATS` | No | Set to `1` to run without NATS (poll-only jobs) |
+| `AIWX_OUTBOX_INTERVAL` | No | Outbox relay tick (default: `1s`) |
+| `AIWX_OUTBOX_BATCH` | No | Outbox batch size (default: `50`) |
+| `AIWX_JOB_TIMEOUT` | No | Max job runtime (default: `30m`) |
+| `AIWX_WORKER_POLL_FALLBACK` | No | Fallback job poll interval (default: `30s`) |
+| `ANSIBLE_PLAYBOOK` | No | Path to `ansible-playbook` binary |
+| `AIWX_ARTIFACTS_DIR` | No | Project artifact root (default: `/tmp/aiwx-artifacts`) |
 
 ## Development
 
@@ -203,17 +260,20 @@ golangci-lint run
 
 # Build UI
 cd ui && npm run build
+
+# Health
+curl localhost:8080/healthz
+curl localhost:8080/readyz   # checks PostgreSQL + NATS
 ```
 
 ## Roadmap
 
 - [ ] Execution Environments (container-based execution)
-- [ ] Credential YAML support
-- [ ] Project sync as job entry
-- [ ] SSE/WebSocket job streaming
-- [ ] Workflow orchestration
 - [ ] K8s operator
-- [ ] Vault integration
+- [ ] Vault / external secret managers
+- [ ] SSE fan-out from NATS (currently DB-poll streaming)
+- [ ] Multi-instance dispatcher capacity / worker pools
+- [ ] Credential YAML injectors (UI ready)
 
 ## License
 

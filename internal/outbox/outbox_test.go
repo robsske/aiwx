@@ -30,7 +30,7 @@ func TestEventType_Constants(t *testing.T) {
 func TestRelay_Creation(t *testing.T) {
 	store := &Store{pool: nil}
 	publisher := &mockPublisher{}
-	relay := NewRelay(store, publisher, 10, time.Second)
+	relay := NewRelay(store, publisher, 10, time.Second, nil)
 
 	if relay == nil {
 		t.Fatal("NewRelay should not return nil")
