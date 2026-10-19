@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { useProjects, useOrganizations, useCreateProject, useSyncProject } from '../hooks/useApi'
+import { useProjects, useOrganizations, useCreateProject, useSyncProject, useCredentials } from '../hooks/useApi'
 import { ErrorState } from '../components/ErrorState'
 import { PageHeader, StatusBadge, LoadingState, Mono, EmptyState } from '../components/Page'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -23,6 +23,7 @@ function extractErrorMessage(err: unknown): string {
 export default function Projects() {
   const { data: projects, isLoading, isError, refetch } = useProjects()
   const { data: orgs } = useOrganizations()
+  const { data: credentials } = useCredentials()
   const createProject = useCreateProject()
   const syncProject = useSyncProject()
   const [showCreate, setShowCreate] = useState(false)
@@ -30,10 +31,13 @@ export default function Projects() {
   const [name, setName] = useState('')
   const [scmUrl, setScmUrl] = useState('')
   const [scmBranch, setScmBranch] = useState('main')
+  const [scmCredentialId, setScmCredentialId] = useState('')
   const [formError, setFormError] = useState<string | null>(null)
   const [syncingId, setSyncingId] = useState<string | null>(null)
 
   const orgName = (id: string) => orgs?.results?.find(o => o.id === id)?.name ?? id.slice(0, 8)
+  const credName = (id: string | null) =>
+    id ? (credentials?.results?.find(c => c.id === id)?.name ?? id.slice(0, 8)) : '—'
 
   const list = useListControls(projects?.results, {
     getText: (p) => `${p.name} ${p.scm_url} ${p.scm_branch} ${p.sync_status} ${orgName(p.organization_id)}`,
@@ -49,12 +53,14 @@ export default function Projects() {
         name: name.trim(),
         scm_url: scmUrl.trim(),
         scm_branch: scmBranch.trim() || 'main',
+        scm_credential_id: scmCredentialId || undefined,
       })
       setShowCreate(false)
       setOrgId('')
       setName('')
       setScmUrl('')
       setScmBranch('main')
+      setScmCredentialId('')
     } catch (err: unknown) {
       setFormError(extractErrorMessage(err))
     }
@@ -121,6 +127,23 @@ export default function Projects() {
                 <Label>Branch</Label>
                 <Input value={scmBranch} onChange={(e) => setScmBranch(e.target.value)} placeholder="main" />
               </div>
+              <div className="space-y-2">
+                <Label>SCM Credential (optional)</Label>
+                <Select value={scmCredentialId || '__none__'} onValueChange={(v: string) => setScmCredentialId(v === '__none__' ? '' : v)}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Public / no auth" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">Public / no auth</SelectItem>
+                    {credentials?.results?.map((c) => (
+                      <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  Use a Git SSH Key, GitHub PAT, GitHub App, or Username/Password credential for private repos.
+                </p>
+              </div>
               <div className="flex gap-2">
                 <Button type="submit" disabled={createProject.isPending}>
                   {createProject.isPending ? 'Creating...' : 'Create'}
@@ -161,6 +184,7 @@ export default function Projects() {
                       <TableHead>Organization</TableHead>
                       <TableHead>URL</TableHead>
                       <TableHead>Branch</TableHead>
+                      <TableHead>Credential</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead>Revision</TableHead>
                       <TableHead>Actions</TableHead>
@@ -177,6 +201,7 @@ export default function Projects() {
                         <TableCell>{orgName(project.organization_id)}</TableCell>
                         <TableCell><Mono>{project.scm_url}</Mono></TableCell>
                         <TableCell>{project.scm_branch}</TableCell>
+                        <TableCell>{credName(project.scm_credential_id)}</TableCell>
                         <TableCell>
                           <StatusBadge status={project.sync_status} />
                         </TableCell>

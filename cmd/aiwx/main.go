@@ -63,7 +63,7 @@ func main() {
 	outboxStore := outbox.NewStore(db.Pool)
 	checker := rbac.New(repos.RoleAssignments)
 
-	syncAdapter := api.NewGitSyncAdapter(repos.Projects, logger)
+	syncAdapter := api.NewGitSyncAdapter(repos.Projects, repos.Credentials, logger)
 
 	encSecret := os.Getenv("CRED_ENC_KEY")
 	if encSecret == "" {

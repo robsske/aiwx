@@ -640,6 +640,67 @@ func (r *CredentialRepo) SetCrypto(c FieldCryptor) {
 	r.crypto = c
 }
 
+// GetDecryptedByID returns a credential with secret fields decrypted and NOT redacted.
+// Intended for internal use (project sync, job execution) — never return this to API clients.
+func (r *CredentialRepo) GetDecryptedByID(ctx context.Context, id uuid.UUID) (*domain.Credential, error) {
+	cred := &domain.Credential{}
+	err := r.pool.QueryRow(ctx,
+		`SELECT id, organization_id, name, credential_type_id, inputs, created_at, updated_at
+		 FROM credentials WHERE id = $1`, id,
+	).Scan(&cred.ID, &cred.OrganizationID, &cred.Name, &cred.CredentialTypeID,
+		&cred.Inputs, &cred.CreatedAt, &cred.UpdatedAt)
+	if err != nil {
+		return nil, err
+	}
+	cred.Inputs = r.decryptSecretFields(cred.Inputs)
+	return cred, nil
+}
+
+// SCMCredential is a decrypted credential for git authentication (internal use).
+type SCMCredential struct {
+	ID       uuid.UUID
+	Name     string
+	TypeName string
+	Inputs   map[string]string
+}
+
+// GetSCMCredential returns decrypted inputs plus the credential type name for git auth.
+// Secrets are decrypted but must never be logged or returned to API clients.
+func (r *CredentialRepo) GetSCMCredential(ctx context.Context, id uuid.UUID) (*SCMCredential, error) {
+	var (
+		credID   uuid.UUID
+		name     string
+		typeName string
+		inputs   map[string]any
+	)
+	err := r.pool.QueryRow(ctx,
+		`SELECT c.id, c.name, ct.name, c.inputs
+		 FROM credentials c
+		 JOIN credential_types ct ON ct.id = c.credential_type_id
+		 WHERE c.id = $1`, id,
+	).Scan(&credID, &name, &typeName, &inputs)
+	if err != nil {
+		return nil, err
+	}
+	decrypted := r.decryptSecretFields(inputs)
+	strInputs := make(map[string]string, len(decrypted))
+	for k, v := range decrypted {
+		switch t := v.(type) {
+		case string:
+			strInputs[k] = t
+		case nil:
+		default:
+			strInputs[k] = fmt.Sprintf("%v", t)
+		}
+	}
+	return &SCMCredential{
+		ID:       credID,
+		Name:     name,
+		TypeName: typeName,
+		Inputs:   strInputs,
+	}, nil
+}
+
 // encryptSecretFields encrypts values of secret-looking keys before persistence.
 func (r *CredentialRepo) encryptSecretFields(inputs map[string]any) (map[string]any, error) {
 	if r.crypto == nil || inputs == nil {

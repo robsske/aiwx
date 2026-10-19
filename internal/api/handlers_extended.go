@@ -913,6 +913,18 @@ func (d *Deps) handleUpdateProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// SCM credential must belong to the project's organization.
+	if input.SCMCredentialID != nil {
+		existing, err := d.Repos.Projects.GetByIDScoped(r.Context(), id, scope)
+		if err != nil {
+			writeError(w, http.StatusNotFound, "NOT_FOUND", "Project not found")
+			return
+		}
+		if !d.requireOrgCredential(w, r, existing.OrganizationID, *input.SCMCredentialID) {
+			return
+		}
+	}
+
 	project, err := d.Repos.Projects.UpdateScoped(r.Context(), id, scope, input)
 	if err != nil {
 		if err == pgx.ErrNoRows {

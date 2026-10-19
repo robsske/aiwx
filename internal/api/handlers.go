@@ -226,6 +226,13 @@ func (d *Deps) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// SCM credential must belong to the same organization.
+	if input.SCMCredentialID != nil {
+		if !d.requireOrgCredential(w, r, orgID, *input.SCMCredentialID) {
+			return
+		}
+	}
+
 	project, err := d.Repos.Projects.Create(r.Context(), input, orgID)
 	if err != nil {
 		d.Logger.Error("create project failed", "error", err, "org_id", orgID)

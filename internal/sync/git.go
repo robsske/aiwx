@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -64,21 +65,31 @@ type ProjectRepo interface {
 
 // ─── Git Sync Worker ──────────────────────────────────────────────────────────
 
+// CredentialLoader loads a decrypted credential for SCM authentication.
+type CredentialLoader interface {
+	// GetSCMCredential returns the decrypted credential, or nil when id is nil.
+	GetSCMCredential(ctx context.Context, id *uuid.UUID) (*Credential, error)
+}
+
 // Worker synchronizes projects from Git repositories.
 type Worker struct {
 	repo         ProjectRepo
+	creds        CredentialLoader
 	logger       *slog.Logger
 	workDir      string
 	artifactsDir string
+	httpClient   *http.Client
 }
 
-// NewWorker creates a new Git sync worker.
-func NewWorker(repo ProjectRepo, logger *slog.Logger, workDir, artifactsDir string) *Worker {
+// NewWorker creates a new Git sync worker. creds may be nil (public clones only).
+func NewWorker(repo ProjectRepo, creds CredentialLoader, logger *slog.Logger, workDir, artifactsDir string) *Worker {
 	return &Worker{
 		repo:         repo,
+		creds:        creds,
 		logger:       logger,
 		workDir:      workDir,
 		artifactsDir: artifactsDir,
+		httpClient:   &http.Client{Timeout: 30 * time.Second},
 	}
 }
 
@@ -154,27 +165,51 @@ func (w *Worker) Sync(ctx context.Context, projectID uuid.UUID) (*SyncResult, er
 	return result, nil
 }
 
-// cloneOrFetch clones or updates the repository.
+// cloneOrFetch clones or updates the repository using SCM credentials when set.
 func (w *Worker) cloneOrFetch(ctx context.Context, project *Project, workPath string) error {
+	auth, err := w.resolveAuth(ctx, project)
+	if err != nil {
+		return err
+	}
+
 	gitDir := filepath.Join(workPath, ".git")
 
 	if _, err := os.Stat(gitDir); os.IsNotExist(err) {
-		// Clone
 		args := []string{"clone", "--branch", project.SCMBranch, "--depth", "1", project.SCMURL, workPath}
-		if err := w.runGit(ctx, "", args...); err != nil {
+		if err := w.runGitAuth(ctx, auth, "", args...); err != nil {
 			return fmt.Errorf("git clone: %w", err)
 		}
 	} else {
-		// Fetch and reset
-		if err := w.runGit(ctx, workPath, "fetch", "origin"); err != nil {
+		if err := w.runGitAuth(ctx, auth, workPath, "fetch", "origin"); err != nil {
 			return fmt.Errorf("git fetch: %w", err)
 		}
-		if err := w.runGit(ctx, workPath, "reset", "--hard", "origin/"+project.SCMBranch); err != nil {
+		if err := w.runGitAuth(ctx, auth, workPath, "reset", "--hard", "origin/"+project.SCMBranch); err != nil {
 			return fmt.Errorf("git reset: %w", err)
 		}
 	}
 
 	return nil
+}
+
+// resolveAuth loads and resolves the project's SCM credential into git auth.
+func (w *Worker) resolveAuth(ctx context.Context, project *Project) (*SCMAuth, error) {
+	if w.creds == nil || project.SCMCredentialID == nil {
+		return &SCMAuth{Kind: SCMAuthNone}, nil
+	}
+	cred, err := w.creds.GetSCMCredential(ctx, project.SCMCredentialID)
+	if err != nil {
+		return nil, fmt.Errorf("load scm credential: %w", err)
+	}
+	auth, err := ResolveSCMAuth(ctx, cred, w.httpClient)
+	if err != nil {
+		return nil, err
+	}
+	w.logger.Info("project sync using scm credential",
+		"project_id", project.ID,
+		"credential_id", project.SCMCredentialID,
+		"auth_kind", auth.Kind,
+	)
+	return auth, nil
 }
 
 // getCommitSHA returns the current HEAD commit SHA.

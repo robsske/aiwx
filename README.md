@@ -30,6 +30,7 @@ A multi-tenant automation controller — a modern reimplementation of [AWX](http
 | **Multi-tenancy** | ✅ | Org isolation, cross-tenant access blocked |
 | **Projects** | ✅ | Git clone, branch tracking, commit SHA |
 | **Project Sync** | ✅ | Real `git clone`, stores artifacts |
+| **SCM Auth** | ✅ | GitHub App, GitHub/Git PAT, SSH key, username/password |
 | **Credentials** | ✅ | Type-based, AES-GCM at rest, secret redaction |
 | **Job Templates** | ✅ | Link project + inventory + playbook |
 | **Job Execution** | ✅ | Real `ansible-playbook` runs |
@@ -179,6 +180,24 @@ Then in the UI:
 2. Click Sync → wait for "success"
 3. Create Job Template → select project, playbook: `site.yml`
 4. Click Launch → watch real Ansible output!
+
+### Private repositories (SCM auth)
+
+Create a credential first (Credentials page), then attach it on the project form (`SCM Credential`):
+
+| Credential type | Inputs | Git auth |
+|-----------------|--------|----------|
+| **Git SSH Key** | `ssh_key` (PEM), optional `ssh_known_hosts` | `GIT_SSH_COMMAND` with temp key (0600) |
+| **GitHub Personal Access Token** | `token`, optional `username` (default `x-access-token`) | HTTPS via `GIT_ASKPASS` |
+| **GitHub App** | `app_id`, `installation_id`, `private_key` (PEM), optional `base_url` | Mints installation token, then HTTPS |
+| **Git Personal Access Token** | `token`, optional `username` | HTTPS via `GIT_ASKPASS` |
+| **Username/Password** | `username`, `password` | HTTPS via `GIT_ASKPASS` |
+
+Notes:
+- Credentials are AES-256-GCM encrypted at rest (`CRED_ENC_KEY` / `JWT_SECRET`).
+- Secrets are never logged; git output has URL userinfo redacted.
+- The credential must belong to the same organization as the project.
+- GitHub App tokens are short-lived installation tokens (minted at sync time).
 
 ## Architecture
 

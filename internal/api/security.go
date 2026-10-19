@@ -59,6 +59,20 @@ func (d *Deps) requireInventoryAccess(w http.ResponseWriter, r *http.Request, in
 	return scope.AllowsOrg(inv.OrganizationID)
 }
 
+// requireOrgCredential verifies a credential exists and belongs to orgID.
+func (d *Deps) requireOrgCredential(w http.ResponseWriter, r *http.Request, orgID, credID uuid.UUID) bool {
+	cred, err := d.Repos.Credentials.GetByID(r.Context(), credID)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "scm_credential_id not found")
+		return false
+	}
+	if cred.OrganizationID != orgID {
+		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "scm_credential_id must belong to the project organization")
+		return false
+	}
+	return true
+}
+
 // validateSCMURL rejects SSRF / command-injection vectors in git clone URLs.
 func validateSCMURL(raw string) error {
 	raw = strings.TrimSpace(raw)

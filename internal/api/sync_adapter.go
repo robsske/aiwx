@@ -37,15 +37,41 @@ func (a *syncProjectRepo) UpdateSyncStatus(ctx context.Context, id uuid.UUID, st
 	return a.repo.UpdateSyncStatus(ctx, id, string(status), revision, artifactPath, errMsg)
 }
 
+// syncCredentialLoader adapts repository.CredentialRepo to sync.CredentialLoader.
+type syncCredentialLoader struct {
+	repo *repository.CredentialRepo
+}
+
+func (a *syncCredentialLoader) GetSCMCredential(ctx context.Context, id *uuid.UUID) (*sync.Credential, error) {
+	if id == nil {
+		return nil, nil
+	}
+	c, err := a.repo.GetSCMCredential(ctx, *id)
+	if err != nil {
+		return nil, err
+	}
+	return &sync.Credential{
+		ID:     c.ID.String(),
+		Name:   c.Name,
+		Type:   c.TypeName,
+		Inputs: c.Inputs,
+	}, nil
+}
+
 // GitSyncAdapter wraps sync.Worker to implement SyncRunner.
 type GitSyncAdapter struct {
 	worker *sync.Worker
 }
 
-// NewGitSyncAdapter creates a sync adapter from a repository.
-func NewGitSyncAdapter(repo *repository.ProjectRepo, logger *slog.Logger) *GitSyncAdapter {
+// NewGitSyncAdapter creates a sync adapter from repositories.
+// creds may be nil for public-clone-only operation.
+func NewGitSyncAdapter(repo *repository.ProjectRepo, creds *repository.CredentialRepo, logger *slog.Logger) *GitSyncAdapter {
 	adapter := &syncProjectRepo{repo: repo}
-	worker := sync.NewWorker(adapter, logger, "/tmp/aiwx-sync", "/tmp/aiwx-artifacts")
+	var loader sync.CredentialLoader
+	if creds != nil {
+		loader = &syncCredentialLoader{repo: creds}
+	}
+	worker := sync.NewWorker(adapter, loader, logger, "/tmp/aiwx-sync", "/tmp/aiwx-artifacts")
 	return &GitSyncAdapter{worker: worker}
 }
 

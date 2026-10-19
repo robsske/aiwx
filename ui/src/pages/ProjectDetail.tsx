@@ -1,5 +1,5 @@
 import { useParams } from 'react-router-dom'
-import { useProject } from '../hooks/useApi'
+import { useProject, useCredentials } from '../hooks/useApi'
 import { PageHeader, StatusBadge, LoadingState, Mono } from '../components/Page'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { ErrorState } from '../components/ErrorState'
@@ -16,6 +16,7 @@ function DetailItem({ label, children }: { label: string; children: React.ReactN
 export default function ProjectDetail() {
   const { id } = useParams<{ id: string }>()
   const { data: project, isLoading } = useProject(id!)
+  const { data: credentials } = useCredentials()
 
   if (isLoading) {
     return <LoadingState />
@@ -24,6 +25,10 @@ export default function ProjectDetail() {
   if (!project) {
     return <ErrorState message="Project not found" />
   }
+
+  const cred = project.scm_credential_id
+    ? credentials?.results?.find((c) => c.id === project.scm_credential_id)
+    : undefined
 
   return (
     <div>
@@ -40,6 +45,9 @@ export default function ProjectDetail() {
             </DetailItem>
             <DetailItem label="Branch">
               {project.scm_branch}
+            </DetailItem>
+            <DetailItem label="SCM Credential">
+              {cred ? cred.name : 'Public / no auth'}
             </DetailItem>
             <DetailItem label="Sync Status">
               <StatusBadge status={project.sync_status} />
